@@ -63,6 +63,12 @@
   .chip .x { color: var(--text-dim); font-size: 11px; margin-left: 2px; }
   #btn-clear { font-size: 11px; color: var(--text-dim); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; cursor: pointer; }
   #btn-clear:hover { color: var(--text); border-color: var(--text-dim); }
+  #btn-brush { font-size: 11px; color: var(--text-dim); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+  #btn-brush:hover, #btn-brush.active { color: var(--accent); border-color: var(--accent); }
+  .brush-layer .selection { fill: var(--accent); fill-opacity: 0.12; stroke: var(--accent); stroke-width: 1; }
+  .brush-layer .handle { fill: var(--accent); fill-opacity: 0.6; rx: 2; }
+  .brush-layer .overlay { cursor: crosshair; }
+  #brush-range-info { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; }
 
 
   /* ---- canvas + axes ---- */
@@ -171,6 +177,7 @@
           <div class="stat-row"><span class="stat-label">P25 / P75</span><span class="stat-val" id="s-p2575">—</span></div>
           <div id="rel-badge"></div>
           <div id="n-info"></div>
+          <div id="brush-range-info"></div>
         </div>
       </div>
       <div id="stats-detail" class="stats-tab-panel">
@@ -293,6 +300,7 @@
   <div id="chart-area">
     <div id="toolbar">
       <div id="active-chips"></div>
+      <button id="btn-brush">Range</button>
       <button id="btn-clear">Clear all</button>
     </div>
     <div id="legend"></div>
@@ -337,6 +345,10 @@ let colorMode = 'income_type';
 let visibleRows = [];
 let dotData = [];
 let chartScope = null;
+let brushRange = null;   // {lo, hi} income values, or null
+let brushLayer = null;   // D3 selection of brush <g>
+let d3brush = null;      // D3 brush object
+let brushModeActive = false;
 
 // ============================================================
 // Color palettes
@@ -502,12 +514,46 @@ function matchesFilters(i, cols) {
   return true;
 }
 
+function matchesBrush(i, cols) {
+  if (!brushRange) return true;
+  return cols.inc[i] >= brushRange.lo && cols.inc[i] <= brushRange.hi;
+}
+
+function isDimmed(i, cols, hasFilters) {
+  if (hasFilters && !matchesFilters(i, cols)) return true;
+  if (!matchesBrush(i, cols)) return true;
+  return false;
+}
+
 function updateDotOpacity() {
   const cols = currentCols();
   const hasFilters = selectedFips.size > 0 || Object.values(filters).some(s => s && s.size > 0);
   d3.select('#chart-svg').selectAll('circle')
-    .attr('opacity', d => (hasFilters && !matchesFilters(d.i, cols)) ? 0.12 : 0.75)
-    .attr('pointer-events', d => (hasFilters && !matchesFilters(d.i, cols)) ? 'none' : 'all');
+    .attr('opacity', d => isDimmed(d.i, cols, hasFilters) ? 0.12 : 0.75)
+    .attr('pointer-events', d => isDimmed(d.i, cols, hasFilters) ? 'none' : 'all');
+}
+
+function renderBrushInfo() {
+  const el = document.getElementById('brush-range-info');
+  if (!brushRange || !visibleRows || !visibleRows.length) { el.innerHTML = ''; return; }
+  const cols = nationalTable;
+  const {lo, hi} = brushRange;
+  const rangeRows = visibleRows.filter(i => cols.inc[i] >= lo && cols.inc[i] <= hi);
+  const totalW = visibleRows.reduce((s, i) => s + cols.weight[i], 0);
+  const rangeW = rangeRows.reduce((s, i) => s + cols.weight[i], 0);
+  const pct = totalW > 0 ? (rangeW / totalW * 100).toFixed(1) : '0';
+  let medStr = '—', meanStr = '—';
+  if (rangeRows.length >= 5) {
+    const inc = rangeRows.map(i => cols.inc[i]);
+    const w   = rangeRows.map(i => cols.weight[i]);
+    medStr  = fmt$(wPercentile(inc, w, 0.5));
+    meanStr = fmt$(inc.reduce((s, v, k) => s + v * w[k], 0) / w.reduce((a, b) => a + b, 0));
+  }
+  el.innerHTML = `<div class="panel-title">Selected range</div>
+    <div class="stat-row"><span class="stat-label">${fmt$(lo)} – ${fmt$(hi)}</span></div>
+    <div class="stat-row"><span class="stat-label">Households</span><span class="stat-val">${pct}% of slice</span></div>
+    <div class="stat-row"><span class="stat-label">Median</span><span class="stat-val">${medStr}</span></div>
+    <div class="stat-row"><span class="stat-label">Mean</span><span class="stat-val">${meanStr}</span></div>`;
 }
 
 // ============================================================
@@ -673,6 +719,7 @@ function pushUrl() {
     if (vals && vals.size > 0) params.set(dim, [...vals].sort().join(','));
   }
   if (selectedFips.size > 0) params.set('states', [...selectedFips].sort().join(','));
+  if (brushRange) { params.set('brush_lo', brushRange.lo); params.set('brush_hi', brushRange.hi); }
   const qs = params.toString();
   history.replaceState(null, '', qs ? '#' + qs : location.pathname + location.search);
 }
@@ -697,9 +744,13 @@ function applyUrl() {
     updateStateColorMap();
   }
 
+  const brushLo = params.get('brush_lo');
+  const brushHi = params.get('brush_hi');
+  if (brushLo && brushHi) brushRange = {lo: parseInt(brushLo), hi: parseInt(brushHi)};
+
   filters = {};
   for (const [key, val] of params.entries()) {
-    if (key === 'cm' || key === 'states') continue;
+    if (['cm', 'states', 'brush_lo', 'brush_hi'].includes(key)) continue;
     const nums = val.split(',').map(Number).filter(v => !isNaN(v));
     if (nums.length) filters[key] = new Set(nums);
   }
@@ -721,6 +772,7 @@ function render() {
   }
   syncFilterButtons();
   renderActiveChips();
+  renderBrushInfo();
   renderLegend();
   renderGroupBreakdown();
   pushUrl();
@@ -805,8 +857,8 @@ function renderChart() {
       .attr('fill', d => d.topcode ? 'none' : dotColor(d.i, cols, palette))
       .attr('stroke', d => d.topcode ? '#c9a227' : dotColor(d.i, cols, palette))
       .attr('stroke-width', d => d.topcode ? 1.5 : 0.5)
-      .attr('opacity', d => (hasFilters && !matchesFilters(d.i, cols)) ? 0.12 : 0.75)
-      .attr('pointer-events', d => (hasFilters && !matchesFilters(d.i, cols)) ? 'none' : 'all')
+      .attr('opacity', d => isDimmed(d.i, cols, hasFilters) ? 0.12 : 0.75)
+      .attr('pointer-events', d => isDimmed(d.i, cols, hasFilters) ? 'none' : 'all')
       .on('mouseover', (event, d) => showTooltip(event, d.i))
       .on('mousemove', (event) => moveTooltip(event))
       .on('mouseout', hideTooltip);
@@ -824,6 +876,45 @@ function renderChart() {
       .attr('fill', '#c9a227')
       .attr('pointer-events', 'none')
       .text('⊕');
+
+  // Brush layer (on top so it can capture drag events)
+  d3brush = d3.brushX()
+    .extent([[0, 0], [chartW, chartH]])
+    .on('end', function(event) {
+      if (!event.selection) {
+        // click without drag — just deactivate brush mode
+        brushModeActive = false;
+        document.getElementById('btn-brush').classList.remove('active');
+        brushLayer.select('.overlay').attr('pointer-events', 'none');
+        return;
+      }
+      const [x0, x1] = event.selection;
+      brushRange = {
+        lo: Math.round(xScale.invert(x0)),
+        hi: Math.round(xScale.invert(x1)),
+      };
+      brushModeActive = false;
+      document.getElementById('btn-brush').classList.remove('active');
+      brushLayer.select('.overlay').attr('pointer-events', 'none');
+      updateDotOpacity();
+      renderBrushInfo();
+      renderActiveChips();
+      pushUrl();
+    });
+
+  brushLayer = svgEl.append('g')
+    .attr('class', 'brush-layer')
+    .attr('transform', `translate(${marginL},${marginT})`)
+    .call(d3brush);
+
+  // Restore saved selection from brushRange
+  if (brushRange) {
+    const x0 = xScale(Math.max(1000, brushRange.lo));
+    const x1 = xScale(Math.min(2500000, brushRange.hi));
+    brushLayer.call(d3brush.move, [x0, x1]);
+  }
+  // Overlay only active in brush mode
+  brushLayer.select('.overlay').attr('pointer-events', brushModeActive ? 'all' : 'none');
 }
 
 // ============================================================
@@ -1108,6 +1199,22 @@ function renderActiveChips() {
   const container = document.getElementById('active-chips');
   container.innerHTML = '';
 
+  // Brush range chip
+  if (brushRange) {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.innerHTML = `<span>Range: ${fmt$(brushRange.lo)} – ${fmt$(brushRange.hi)}</span><span class="x">✕</span>`;
+    chip.addEventListener('click', () => {
+      brushRange = null;
+      if (brushLayer) brushLayer.call(d3brush.move, null);
+      updateDotOpacity();
+      renderBrushInfo();
+      renderActiveChips();
+      pushUrl();
+    });
+    container.append(chip);
+  }
+
   // State chips
   for (const fips of selectedFips) {
     const name = codebook?.states?.[String(fips)]?.name ?? `State ${fips}`;
@@ -1254,9 +1361,32 @@ document.querySelectorAll('.stats-tab-btn').forEach(btn => {
 // ============================================================
 // Clear all
 // ============================================================
+document.getElementById('btn-brush').addEventListener('click', () => {
+  if (brushRange) {
+    // Clear existing selection
+    brushRange = null;
+    brushModeActive = false;
+    document.getElementById('btn-brush').classList.remove('active');
+    if (brushLayer) brushLayer.call(d3brush.move, null);
+    updateDotOpacity();
+    renderBrushInfo();
+    renderActiveChips();
+    pushUrl();
+  } else {
+    // Enter brush mode
+    brushModeActive = true;
+    document.getElementById('btn-brush').classList.add('active');
+    if (brushLayer) brushLayer.select('.overlay').attr('pointer-events', 'all');
+  }
+});
+
 document.getElementById('btn-clear').addEventListener('click', () => {
   filters = {};
   selectedFips.clear();
+  brushRange = null;
+  brushModeActive = false;
+  document.getElementById('btn-brush').classList.remove('active');
+  if (brushLayer) brushLayer.call(d3brush.move, null);
   updateStateColorMap();
   syncStateCheckboxes();
   syncFilterButtons();

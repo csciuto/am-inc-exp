@@ -70,11 +70,16 @@ sampling weight; up to 3,000 dots are drawn via weighted subsampling).
 - **Color** the dots by any dimension from the *Group* tab (income type by
   default). The legend reflects the current coloring; clicking a legend swatch also
   filters by that value.
+- **Select a range** by clicking **Range** in the toolbar, then dragging across the
+  chart. A panel shows the median, mean, and share of households within that income
+  band. The selection appears as a chip and is cleared with ✕ or **Clear all**.
 - **Read the stats** in the sidebar: median, mean, and P25/P75 for the current
   slice, with a reliability badge. The **By group** tab breaks median/mean income
   down by the active color dimension.
 - **Hover** any dot for a household's full detail (income, age, work status,
   location, weight, year).
+- **Deep-link** any view: filters, state selections, color mode, and range
+  selections are all reflected in the URL hash so you can bookmark or share.
 
 ### Run the tests
 
@@ -161,6 +166,12 @@ Preprocessor dependencies: `numpy`, `pandas`, `pyarrow`.
 When adding a new survey year, verify that year's topcode value against the
 [IPUMS topcode tables](https://cps.ipums.org/cps/topcodes_tables.shtml) and add it
 to `TOPCODES` in `preprocess.py`.
+
+> **Known bug:** `collapse_to_household` in `preprocess.py` groups by `SERIAL`
+> alone, but CPS reuses serial numbers across survey years. When pooling multiple
+> ASEC years in one extract, later-year households that share a serial with an
+> earlier-year household are silently dropped. Fix: change `groupby("SERIAL")` to
+> `groupby(["YEAR", "SERIAL"])` on line 166 of `preprocess.py` before regenerating.
 
 ## Deployment
 

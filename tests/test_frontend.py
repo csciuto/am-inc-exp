@@ -361,3 +361,76 @@ class TestStateSelector:
             }
         """)
         assert missing == [], f"States absent from 3000-dot subsample: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# Brush range selection
+# ---------------------------------------------------------------------------
+
+class TestBrushRange:
+    def _chart_bbox(self, page: Page):
+        return page.locator("#chart-svg").bounding_box()
+
+    def _drag_brush(self, page: Page, x_frac_lo: float, x_frac_hi: float):
+        """Drag a brush selection across the given fraction of the chart width."""
+        bb = self._chart_bbox(page)
+        y = bb["y"] + bb["height"] / 2
+        x0 = bb["x"] + bb["width"] * x_frac_lo
+        x1 = bb["x"] + bb["width"] * x_frac_hi
+        # Activate brush mode first
+        page.locator("#btn-brush").click()
+        page.mouse.move(x0, y)
+        page.mouse.down()
+        page.mouse.move(x1, y)
+        page.mouse.up()
+
+    def test_range_button_exists(self, page: Page):
+        expect(page.locator("#btn-brush")).to_be_visible()
+
+    def test_range_button_activates_on_click(self, page: Page):
+        page.locator("#btn-brush").click()
+        expect(page.locator("#btn-brush")).to_have_class(re.compile(r"active"))
+
+    def test_brush_creates_chip(self, page: Page):
+        self._drag_brush(page, 0.2, 0.5)
+        chips = page.locator("#active-chips .chip")
+        texts = [chips.nth(i).text_content() for i in range(chips.count())]
+        assert any("Range" in t for t in texts), f"No Range chip found; chips: {texts}"
+
+    def test_brush_shows_range_stats(self, page: Page):
+        self._drag_brush(page, 0.2, 0.6)
+        expect(page.locator("#brush-range-info")).to_be_visible()
+        expect(page.locator("#brush-range-info")).to_contain_text("Selected range")
+        expect(page.locator("#brush-range-info")).to_contain_text("%")
+
+    def test_brush_stats_show_dollar_values(self, page: Page):
+        self._drag_brush(page, 0.2, 0.6)
+        expect(page.locator("#brush-range-info")).to_contain_text("$")
+
+    def test_brush_chip_clear_removes_stats(self, page: Page):
+        self._drag_brush(page, 0.2, 0.6)
+        expect(page.locator("#brush-range-info")).to_be_visible()
+        # Click the Range chip to clear
+        chips = page.locator("#active-chips .chip")
+        for i in range(chips.count()):
+            if "Range" in chips.nth(i).text_content():
+                chips.nth(i).click()
+                break
+        expect(page.locator("#brush-range-info")).to_be_hidden()
+
+    def test_clear_all_removes_brush(self, page: Page):
+        self._drag_brush(page, 0.2, 0.6)
+        expect(page.locator("#brush-range-info")).to_be_visible()
+        page.locator("#btn-clear").click()
+        expect(page.locator("#brush-range-info")).to_be_hidden()
+
+    def test_brush_range_in_url(self, page: Page):
+        self._drag_brush(page, 0.2, 0.6)
+        url = page.url
+        assert "brush_lo=" in url and "brush_hi=" in url, f"Brush not in URL: {url}"
+
+    def test_brush_range_restores_from_url(self, page: Page, static_server: str):
+        page.goto(static_server + "#brush_lo=50000&brush_hi=150000")
+        page.wait_for_selector("#loading", state="hidden", timeout=LOAD_TIMEOUT)
+        expect(page.locator("#brush-range-info")).to_be_visible()
+        expect(page.locator("#brush-range-info")).to_contain_text("$50,000")
