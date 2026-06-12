@@ -167,12 +167,6 @@ When adding a new survey year, verify that year's topcode value against the
 [IPUMS topcode tables](https://cps.ipums.org/cps/topcodes_tables.shtml) and add it
 to `TOPCODES` in `preprocess.py`.
 
-> **Known bug:** `collapse_to_household` in `preprocess.py` groups by `SERIAL`
-> alone, but CPS reuses serial numbers across survey years. When pooling multiple
-> ASEC years in one extract, later-year households that share a serial with an
-> earlier-year household are silently dropped. Fix: change `groupby("SERIAL")` to
-> `groupby(["YEAR", "SERIAL"])` on line 166 of `preprocess.py` before regenerating.
-
 ## Deployment
 
 GitHub Pages serves the `docs/` directory directly. Because the raw IPUMS extract
@@ -197,6 +191,10 @@ You can also run `scripts/stamp-version.sh` by hand before committing. The hash 
 records is the **parent** commit (the hook runs before the new commit exists), so
 the stamp identifies the commit a build is based on — expect a one-step lag, which
 is normal for commit-time stamping without a CI build.
+
+## Known bugs
+
+**Multi-year household deduplication** (`preprocess.py` line 166): `collapse_to_household` groups by `SERIAL` alone, but CPS reuses serial numbers across survey years. When pooling multiple ASEC years in one extract, later-year households that share a serial with an earlier-year household are silently dropped — roughly two-thirds of 2024 and 2025 records are lost. Fix: change `groupby("SERIAL")` to `groupby(["YEAR", "SERIAL"])`. Requires a preprocessor rerun.
 
 ## License
 

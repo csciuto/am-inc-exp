@@ -162,8 +162,8 @@ def detect_cohabiting(df):
 # Collapse to household (keep PERNUM==1 row per SERIAL)
 # ---------------------------------------------------------------------------
 def collapse_to_household(df, cohabiting_serials):
-    df = df.sort_values(["YEAR", "SERIAL", "PERNUM"])
-    hh = df.groupby(["YEAR", "SERIAL"], sort=False).first().reset_index()
+    df = df.sort_values(["SERIAL", "PERNUM"])
+    hh = df.groupby("SERIAL", sort=False).first().reset_index()
     hh["_cohabiting"] = hh["SERIAL"].isin(cohabiting_serials)
     print(f"  {len(hh):,} households after collapse")
     return hh
