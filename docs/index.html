@@ -551,20 +551,17 @@ function renderBrushInfo(transient) {
   const totalW = visibleRows.reduce((s, i) => s + cols.weight[i], 0);
   const rangeW = rangeRows.reduce((s, i) => s + cols.weight[i], 0);
   const pct = totalW > 0 ? (rangeW / totalW * 100).toFixed(1) : '0';
-  let medStr = '—', meanStr = '—', p25Str = '—', p75Str = '—';
+  let medStr = '—', meanStr = '—';
   if (rangeRows.length >= 5) {
     const inc = rangeRows.map(i => cols.inc[i]);
     const w   = rangeRows.map(i => cols.weight[i]);
     medStr  = fmt$(wPercentile(inc, w, 0.5));
     meanStr = fmt$(inc.reduce((s, v, k) => s + v * w[k], 0) / w.reduce((a, b) => a + b, 0));
-    p25Str  = fmt$(wPercentile(inc, w, 0.25));
-    p75Str  = fmt$(wPercentile(inc, w, 0.75));
   }
   el.innerHTML = `<div class="stat-row" style="margin-bottom:4px"><span class="stat-label" style="font-weight:600">${fmt$(lo)} – ${fmt$(hi)}</span></div>
     <div class="stat-row"><span class="stat-label">Households</span><span class="stat-val">${pct}% of slice</span></div>
     <div class="stat-row"><span class="stat-label">Median</span><span class="stat-val">${medStr}</span></div>
-    <div class="stat-row"><span class="stat-label">Mean</span><span class="stat-val">${meanStr}</span></div>
-    <div class="stat-row"><span class="stat-label">P25 / P75</span><span class="stat-val">${p25Str} / ${p75Str}</span></div>`;
+    <div class="stat-row"><span class="stat-label">Mean</span><span class="stat-val">${meanStr}</span></div>`;
 }
 
 // ============================================================

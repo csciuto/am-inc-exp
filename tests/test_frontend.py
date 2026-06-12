@@ -112,15 +112,17 @@ class TestFilters:
         page.locator('#f-metro .f-btn[data-val="0"]').click()
         assert page.locator("#chart-svg circle").count() > 0
 
-    def test_state_filter_reduces_dots(self, page: Page):
-        total_before = page.locator("#chart-svg circle").count()
-        # Kentucky has 981 rows — well below the 3000 cap
+    def test_state_filter_dims_non_state_dots(self, page: Page):
+        # Selecting a state keeps all 3000 ghost dots but dims non-matching ones.
+        # Kentucky (fips=21) has ~981 rows — well under 3000.
         page.locator(".tab-btn[data-tab='geo']").click()
         page.locator('#state-list .state-cb[data-fips="21"]').click()
         page.wait_for_timeout(400)
-        total_after = page.locator("#chart-svg circle").count()
-        assert total_after < total_before
-        assert total_after == 981
+        total = page.locator("#chart-svg circle").count()
+        active = page.locator("#chart-svg circle[pointer-events='all']").count()
+        assert total == 3000
+        assert active < 3000
+        assert active > 0
 
     def test_first_click_sets_exclusive_filter(self, page: Page):
         page.locator("#f-age_bucket .f-btn").first.click()
