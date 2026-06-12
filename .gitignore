@@ -1,0 +1,18 @@
+# Raw data — large, not tracked
+*.dat.gz
+*.dat
+*.xml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Per-state Arrow files: emitted by preprocess.py but never fetched by the
+# frontend (it filters national.arrow in-browser). Safe to leave untracked.
+docs/data/states/
+# Note: national.arrow, stats_precomputed.json, and codebook.json are intentionally
+# tracked — the GitHub Pages site fetches them at runtime and CI cannot rebuild them.
+
+# OS
+.DS_Store

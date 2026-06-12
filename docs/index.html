@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>American Income Explorer</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3350;
+    --text: #e2e8f0;
+    --text-dim: #8892b0;
+    --text-dimmer: #4a5580;
+    --accent: #6c8ebf;
+    --accent2: #4a7c59;
+    --warn: #c9a227;
+    --danger: #c94040;
+    --chip-active: #3a4a70;
+    --chip-hover: #2a3350;
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; font-size: 14px; }
+  body { display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* ---- header ---- */
+  #header { padding: 14px 20px 10px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 16px; }
+  #header h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.3px; }
+  #header .sub { color: var(--text-dim); font-size: 12px; }
+
+  /* ---- main layout ---- */
+  #main { display: flex; flex: 1; overflow: hidden; }
+  #sidebar { width: 260px; min-width: 220px; border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  #chart-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ---- sidebar inner layout ---- */
+  #sidebar-stats { flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; }
+  #stats-tab-bar { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; padding: 0 4px; gap: 2px; }
+  .stats-tab-btn { flex: 1; background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 4px; font-size: 11px; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
+  .stats-tab-btn:hover { color: var(--text); }
+  .stats-tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+  .stats-tab-panel { display: none; padding: 10px 12px; overflow-y: auto; max-height: 160px; }
+  .stats-tab-panel.active { display: block; }
+  #sidebar-body { flex: 1; overflow-y: auto; min-height: 0; }
+  #sidebar-body::-webkit-scrollbar { width: 4px; }
+  #sidebar-body::-webkit-scrollbar-track { background: transparent; }
+  #sidebar-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ---- tab bar ---- */
+  #tab-bar { position: sticky; top: 0; background: var(--surface); z-index: 5; display: flex; border-bottom: 1px solid var(--border); padding: 6px 8px 0; gap: 2px; flex-shrink: 0; }
+  .tab-btn { background: none; border: none; border-bottom: 2px solid transparent; padding: 5px 6px; font-size: 11px; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; padding: 12px; }
+  .tab-panel.active { display: block; }
+
+  /* ---- toolbar ---- */
+  #toolbar { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  #active-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--chip-active); border: 1px solid var(--accent); border-radius: 4px; padding: 3px 8px; font-size: 12px; cursor: pointer; }
+  .chip:hover { background: var(--border); }
+  .chip .x { color: var(--text-dim); font-size: 11px; margin-left: 2px; }
+  #btn-clear { font-size: 11px; color: var(--text-dim); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+  #btn-clear:hover { color: var(--text); border-color: var(--text-dim); }
+
+
+  /* ---- canvas + axes ---- */
+  #chart-wrap { flex: 1; position: relative; overflow: hidden; }
+  #chart-svg { width: 100%; height: 100%; }
+
+  /* ---- stats panel ---- */
+  .panel-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin-bottom: 6px; }
+  #stats-panel { display: flex; flex-direction: column; gap: 6px; }
+  .stat-row { display: flex; justify-content: space-between; align-items: baseline; }
+  .stat-label { color: var(--text-dim); font-size: 12px; }
+  .stat-val { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .stat-se { font-size: 11px; color: var(--text-dim); }
+  .reliability { font-size: 11px; border-radius: 3px; padding: 2px 6px; margin-top: 4px; }
+  .rel-3 { background: #1a3a1a; color: #6bcc6b; }
+  .rel-2 { background: #3a3010; color: var(--warn); }
+  .rel-1 { background: #3a1a1a; color: #e07070; }
+  .rel-0 { background: #2a1a1a; color: #e07070; }
+  #n-info { font-size: 11px; color: var(--text-dimmer); margin-top: 4px; }
+
+  /* ---- color mode selector ---- */
+  #color-mode { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; margin-top: 4px; }
+  .cm-btn { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; color: var(--text-dim); font-size: 12px; cursor: pointer; text-align: left; }
+  .cm-btn:hover { border-color: var(--text-dim); color: var(--text); }
+  .cm-btn.active { border-color: var(--accent); color: var(--text); background: var(--chip-active); }
+
+  /* ---- group breakdown ---- */
+  #group-breakdown { margin-top: 4px; }
+  .breakdown-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 11px; }
+  .breakdown-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .breakdown-label { flex: 1; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .breakdown-med { font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; }
+  .breakdown-n { color: var(--text-dimmer); min-width: 30px; text-align: right; font-size: 10px; }
+
+  /* ---- filter groups ---- */
+  .filter-group { display: flex; flex-direction: column; gap: 4px; }
+  .filter-group + .filter-group { margin-top: 12px; }
+  .filter-btns { display: flex; flex-wrap: wrap; gap: 4px; }
+  .f-btn { position: relative; background: none; border: 1px solid var(--border); border-radius: 3px; padding: 3px 7px; font-size: 11px; color: var(--text-dim); cursor: pointer; }
+  .f-btn:hover { border-color: var(--text-dim); color: var(--text); }
+  .f-btn.active { background: var(--chip-active); border-color: var(--accent); color: var(--text); }
+
+  /* ---- geography tab ---- */
+  #state-search { width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px; outline: none; margin-top: 4px; }
+  #state-search:focus { border-color: var(--accent); }
+  #state-list { max-height: 200px; overflow-y: auto; margin-top: 4px; }
+  #state-list::-webkit-scrollbar { width: 4px; }
+  #state-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .state-region-header { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dimmer); margin: 8px 0 3px; padding: 0 2px; }
+  .state-check-label { display: flex; align-items: center; gap: 6px; padding: 3px 4px; font-size: 12px; color: var(--text-dim); cursor: pointer; border-radius: 3px; }
+  .state-check-label:hover { background: var(--surface2); color: var(--text); }
+  .state-check-label input { accent-color: var(--accent); cursor: pointer; }
+  #region-shortcuts { display: flex; flex-wrap: wrap; gap: 4px; }
+  .region-btn.partial { border-color: var(--accent); color: var(--text); opacity: 0.6; }
+
+  /* ---- tooltip ---- */
+  #tooltip { position: fixed; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-size: 12px; pointer-events: none; display: none; max-width: 220px; z-index: 1000; line-height: 1.6; }
+  #tooltip .tt-income { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  #tooltip .tt-topcode { color: var(--warn); font-size: 11px; }
+  #tooltip .tt-dim { color: var(--text-dim); }
+
+  /* ---- loading overlay ---- */
+  #loading { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; z-index: 9999; }
+  #loading .msg { color: var(--text-dim); font-size: 13px; }
+  .spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---- footer ---- */
+  #footer { padding: 10px 20px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dimmer); line-height: 1.5; }
+  #footer a { color: var(--text-dim); }
+
+  /* ---- legend ---- */
+  #legend { padding: 0 16px 8px; display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; }
+  .legend-item { display: flex; align-items: center; gap: 4px; cursor: pointer; border-radius: 3px; padding: 2px 4px; margin: -2px -4px; }
+  .legend-item:hover { background: var(--surface2); }
+  .legend-item.active { background: var(--chip-active); outline: 1px solid var(--accent); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .legend-topcode { font-size: 13px; color: var(--warn); line-height: 10px; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div class="msg" id="loading-msg">Loading data…</div>
+</div>
+
+<div id="header">
+  <h1>American Income Explorer</h1>
+  <span class="sub">CPS ASEC 2023–2025 · Household income · Weighted</span>
+</div>
+
+<div id="main">
+
+  <!-- sidebar -->
+  <div id="sidebar">
+    <div id="sidebar-stats">
+      <div id="stats-tab-bar">
+        <button class="stats-tab-btn active" data-stats-tab="summary">Stats</button>
+        <button class="stats-tab-btn" data-stats-tab="detail">By group</button>
+      </div>
+      <div id="stats-summary" class="stats-tab-panel active">
+        <div id="stats-panel">
+          <div class="stat-row"><span class="stat-label">Median</span><span class="stat-val" id="s-med">—</span></div>
+          <div class="stat-row"><span class="stat-label">Mean</span><span class="stat-val" id="s-mean">—</span></div>
+          <div class="stat-row"><span class="stat-label">P25 / P75</span><span class="stat-val" id="s-p2575">—</span></div>
+          <div id="rel-badge"></div>
+          <div id="n-info"></div>
+        </div>
+      </div>
+      <div id="stats-detail" class="stats-tab-panel">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
+          <button id="btn-expand-breakdown" style="background:none;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;padding:0">expand ▾</button>
+        </div>
+        <div id="group-breakdown"></div>
+      </div>
+    </div>
+
+    <div id="sidebar-body">
+
+      <div id="tab-bar">
+        <button class="tab-btn active" data-tab="color">Group</button>
+        <button class="tab-btn" data-tab="demo">Demo</button>
+        <button class="tab-btn" data-tab="geo">Geo</button>
+        <button class="tab-btn" data-tab="work">Work</button>
+        <button class="tab-btn" data-tab="survey">Survey</button>
+      </div>
+
+      <!-- Group tab — color mode buttons -->
+      <div id="tab-color" class="tab-panel active">
+        <div id="color-mode">
+          <button class="cm-btn active" data-mode="income_type">Income type</button>
+          <button class="cm-btn" data-mode="work_status">Work status</button>
+          <button class="cm-btn" data-mode="age_bucket">Age</button>
+          <button class="cm-btn" data-mode="sex">Sex</button>
+          <button class="cm-btn" data-mode="educ">Education</button>
+          <button class="cm-btn" data-mode="marst">Marital status</button>
+          <button class="cm-btn" data-mode="race_ethnicity">Race/ethnicity</button>
+          <button class="cm-btn" data-mode="housing">Housing</button>
+          <button class="cm-btn" data-mode="kids">Kids</button>
+          <button class="cm-btn" data-mode="metro">Metro</button>
+          <button class="cm-btn" data-mode="multi_job_proxy">Secondary hours</button>
+          <button class="cm-btn" data-mode="state">State</button>
+          <button class="cm-btn" data-mode="year">Survey year</button>
+        </div>
+      </div>
+
+      <!-- Demographics tab -->
+      <div id="tab-demo" class="tab-panel">
+        <div class="filter-group">
+          <div class="stat-label">Age</div>
+          <div class="filter-btns" id="f-age_bucket"></div>
+        </div>
+        <div class="filter-group">
+          <div class="stat-label">Sex</div>
+          <div class="filter-btns" id="f-sex"></div>
+        </div>
+        <div class="filter-group">
+          <div class="stat-label">Marital status</div>
+          <div class="filter-btns" id="f-marst"></div>
+        </div>
+        <div class="filter-group">
+          <div class="stat-label">Education</div>
+          <div class="filter-btns" id="f-educ"></div>
+        </div>
+        <div class="filter-group">
+          <div class="stat-label">Race/ethnicity</div>
+          <div class="filter-btns" id="f-race_ethnicity"></div>
+        </div>
+        <div class="filter-group">
+          <div class="stat-label">Kids present</div>
+          <div class="filter-btns" id="f-kids"></div>
+        </div>
+      </div>
+
+      <!-- Geography tab -->
+      <div id="tab-geo" class="tab-panel">
+        <div class="filter-group">
+          <div class="stat-label">Metro area</div>
+          <div class="filter-btns" id="f-metro"></div>
+        </div>
+        <div class="filter-group">
+          <div class="stat-label" style="display:flex;justify-content:space-between;align-items:baseline">
+            <span>States</span>
+            <span style="display:flex;align-items:center;gap:6px">
+              <span id="state-count" style="color:var(--text-dim);font-size:11px"></span>
+              <button id="btn-clear-states" style="display:none;font-size:10px;color:var(--text-dim);background:none;border:1px solid var(--border);border-radius:3px;padding:1px 6px;cursor:pointer">Clear</button>
+            </span>
+          </div>
+          <input type="text" id="state-search" placeholder="Search states…">
+          <div id="state-list"></div>
+        </div>
+      </div>
+
+      <!-- Work & Income tab -->
+      <div id="tab-work" class="tab-panel">
+        <div class="filter-group">
+          <div class="stat-label">Work status</div>
+          <div class="filter-btns" id="f-work_status"></div>
+        </div>
+        <div class="filter-group">
+          <div class="stat-label">Income type</div>
+          <div class="filter-btns" id="f-income_type"></div>
+        </div>
+        <div class="filter-group">
+          <div class="stat-label">Housing</div>
+          <div class="filter-btns" id="f-housing"></div>
+        </div>
+        <div class="filter-group">
+          <div class="stat-label">Secondary work</div>
+          <div class="filter-btns" id="f-multi_job_proxy"></div>
+        </div>
+      </div>
+
+
+      <!-- Survey tab -->
+      <div id="tab-survey" class="tab-panel">
+        <div class="filter-group">
+          <div class="stat-label">Survey year</div>
+          <div class="filter-btns" id="f-year"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- right side -->
+  <div id="chart-area">
+    <div id="toolbar">
+      <div id="active-chips"></div>
+      <button id="btn-clear">Clear all</button>
+    </div>
+    <div id="legend"></div>
+    <div id="chart-wrap">
+      <svg id="chart-svg"></svg>
+    </div>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<div id="footer">
+  Data: IPUMS CPS ASEC survey years 2023–2025, pooled (income years 2022–2024). Each dot represents one survey household weighted by sampling weight.
+  Statistics are weighted. Topcoded incomes (⊕) are censored at the survey year's maximum reported value.
+  Small samples produce unreliable estimates — see reliability indicator.
+  &nbsp;<a href="https://cps.ipums.org" target="_blank">IPUMS CPS</a>
+  &nbsp;<a href="https://github.com/csciuto/am-inc-exp" target="_blank">GitHub</a>
+  &nbsp;<span id="version-stamp" style="color:var(--text-dimmer);font-size:10px"></span>
+</div>
+
+<!-- Arrow JS from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/apache-arrow@latest/Arrow.es2015.min.js"></script>
+<!-- D3 v7 -->
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+
+<script>
+// ============================================================
+// State
+// ============================================================
+let codebook = null;
+let precomputed = null;
+let nationalTable = null;
+
+let selectedFips = new Set();        // multi-state selection
+let fipsToRegion = new Map();        // fips → regionCode
+let regionToFips = new Map();        // regionCode → Set<fips>
+let stateColorMap = new Map();       // fips → palette index
+
+let filters = {};
+let colorMode = 'income_type';
+
+let visibleRows = [];
+let dotData = [];
+
+// ============================================================
+// Color palettes
+// ============================================================
+const STATE_PALETTE = ['#4a7cbc', '#e07070', '#4a9c5e', '#c9a227', '#a97cc4', '#5bc8c8'];
+
+const PALETTES = {
+  income_type:     ['#4a9c5e', '#c9a227', '#8892b0', '#c94040'],
+  work_status:     ['#4a7cbc', '#6bcc6b', '#c9a227', '#e07070', '#c94040', '#888', '#4a4a6a'],
+  educ:            ['#c94040', '#e07070', '#c9a227', '#4a9c5e', '#4a7cbc'],
+  marst:           ['#4a7cbc', '#c9a227', '#e07070', '#888', '#4a9c5e'],
+  race_ethnicity:  ['#4a7cbc', '#4a9c5e', '#c9a227', '#bc6e4a', '#888'],
+  multi_job_proxy: ['#666', '#c9a227', '#e07070', '#c94040'],
+  age_bucket:      ['#8fbcdb', '#4a7cbc', '#4a9c9a', '#4a9c5e', '#c9a227', '#e07070', '#c94040', '#7a2020'],
+  sex:             [null, '#4a7cbc', '#e07070'],
+  kids:            ['#8892b0', '#4a9c5e'],
+  metro:           ['#8892b0', '#4a7cbc'],
+  housing:         ['#4a7cbc', '#4a9c5e', '#c9a227', '#888'],
+  year:            ['#4a7cbc', '#4a9c5e', '#c9a227'],
+};
+
+// ============================================================
+// Helpers
+// ============================================================
+function fmt$(n) {
+  if (n == null || isNaN(n)) return '—';
+  return '$' + Math.round(n).toLocaleString();
+}
+function fmtPct(n) {
+  if (n == null || isNaN(n)) return '—';
+  return (n * 100).toFixed(1) + '%';
+}
+function label(dim, val) {
+  if (dim === 'year') return codebook?.year_display?.[String(val)] ?? String(val);
+  const lb = codebook?.labels?.[dim];
+  if (!lb) return String(val);
+  return lb[String(val)] ?? String(val);
+}
+
+// ============================================================
+// Arrow column extraction
+// ============================================================
+function extractColumns(arrowTable) {
+  const cols = {};
+  for (const name of arrowTable.schema.fields.map(f => f.name)) {
+    cols[name] = arrowTable.getChild(name).toArray();
+  }
+  return cols;
+}
+
+// ============================================================
+// Data loading
+// ============================================================
+async function loadArrow(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+  const buf = await res.arrayBuffer();
+  return Arrow.tableFromIPC(new Uint8Array(buf));
+}
+
+async function init() {
+  setLoading('Loading codebook and stats…');
+  const [cb, stats, natArrow, ver] = await Promise.all([
+    fetch('data/codebook.json').then(r => r.json()),
+    fetch('data/stats_precomputed.json').then(r => r.json()),
+    loadArrow('data/national.arrow'),
+    fetch('version.json').then(r => r.json()).catch(() => null),
+  ]);
+  if (ver) {
+    const el = document.getElementById('version-stamp');
+    if (el) el.textContent = `${ver.date} · ${ver.commit}`;
+  }
+
+  codebook = cb;
+  precomputed = stats;
+  nationalTable = extractColumns(natArrow);
+
+  // Add year labels dynamically
+  codebook.labels.year = Object.fromEntries(
+    Object.entries(codebook.year_display || {})
+  );
+
+  setLoading('Parsing data…');
+  buildFipsToRegion();
+  buildFilterUI();
+  buildGeographyTab();
+  hideLoading();
+  renderLegend();
+  render();
+}
+
+// ============================================================
+// Default filters
+// ============================================================
+
+// ============================================================
+// State → region mapping (derived from nationalTable)
+// ============================================================
+function buildFipsToRegion() {
+  const cols = nationalTable;
+  for (let i = 0; i < cols.state.length; i++) {
+    const s = cols.state[i];
+    const r = cols.region[i];
+    if (!fipsToRegion.has(s)) {
+      fipsToRegion.set(s, r);
+      if (!regionToFips.has(r)) regionToFips.set(r, new Set());
+      regionToFips.get(r).add(s);
+    }
+  }
+}
+
+// ============================================================
+// State color map
+// ============================================================
+function updateStateColorMap() {
+  stateColorMap.clear();
+  let idx = 0;
+  for (const fips of selectedFips) {
+    stateColorMap.set(fips, idx++);
+  }
+}
+
+// ============================================================
+// Current table (always national)
+// ============================================================
+function currentCols() {
+  return nationalTable;
+}
+
+// ============================================================
+// Row filtering
+// ============================================================
+function computeVisibleRows() {
+  const cols = nationalTable;
+  const n = cols.inc.length;
+  const result = [];
+  for (let i = 0; i < n; i++) {
+    if (selectedFips.size > 0 && !selectedFips.has(cols.state[i])) continue;
+    let pass = true;
+    for (const [dim, vals] of Object.entries(filters)) {
+      if (!vals || vals.size === 0) continue;
+      if (!cols[dim]) continue;
+      if (!vals.has(cols[dim][i])) { pass = false; break; }
+    }
+    if (pass) result.push(i);
+  }
+  return result;
+}
+
+
+// ============================================================
+// Dot color
+// ============================================================
+function dotColor(i, cols, palette) {
+  if (colorMode === 'state') {
+    const fips = cols.state[i];
+    const idx = stateColorMap.get(fips);
+    return (idx != null && idx < STATE_PALETTE.length) ? STATE_PALETTE[idx] : '#888';
+  }
+  if (!cols[colorMode]) return '#888';
+  const v = cols[colorMode][i];
+  return palette[v] ?? '#888';
+}
+
+function updateDotColors() {
+  const cols = currentCols();
+  const palette = PALETTES[colorMode] || PALETTES.income_type;
+  d3.select('#chart-svg').selectAll('circle')
+    .attr('fill', d => d.topcode ? 'none' : dotColor(d.i, cols, palette))
+    .attr('stroke', d => d.topcode ? '#c9a227' : dotColor(d.i, cols, palette));
+}
+
+// ============================================================
+// Subsample (max 3000 dots) — Fisher-Yates partial shuffle
+// ============================================================
+function subsample(rows, maxDots = 3000) {
+  if (rows.length <= maxDots) return rows;
+  const arr = [...rows];
+  const n = arr.length;
+  // Partial Fisher-Yates: only shuffle the first maxDots positions
+  for (let i = 0; i < maxDots; i++) {
+    const j = i + Math.floor(Math.random() * (n - i));
+    const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+  }
+  return arr.slice(0, maxDots);
+}
+
+// ============================================================
+// Stats
+// ============================================================
+function buildKey(scopeStr, filterObj) {
+  const parts = scopeStr ? [scopeStr] : [];
+  for (const [k, v] of Object.entries(filterObj).sort((a,b) => a[0].localeCompare(b[0]))) {
+    parts.push(`${k}=${v}`);
+  }
+  return parts.join('|');
+}
+
+const DIM_TO_KEY = {
+  age_bucket: 'age', sex: 'sex', marst: 'marst', educ: 'educ',
+  work_status: 'work', income_type: 'itype',
+  kids: 'kids', race_ethnicity: 'race', multi_job_proxy: 'mjob',
+  housing: 'house', metro: 'metro', year: 'yr',
+};
+
+function getStats() {
+  const cols = nationalTable;
+  const rows = visibleRows;
+  const n = rows.length;
+
+  let scope = 'national';
+  if (selectedFips.size === 1) scope = `state=${[...selectedFips][0]}`;
+
+  const dimFilter = {};
+  let hasMultiValue = selectedFips.size > 1;
+
+  for (const [dim, vals] of Object.entries(filters)) {
+    if (!vals || vals.size === 0) continue;
+    if (vals.size === 1) {
+      dimFilter[DIM_TO_KEY[dim] ?? dim] = [...vals][0];
+    } else {
+      hasMultiValue = true;
+    }
+  }
+
+  if (!hasMultiValue) {
+    const key = buildKey(scope, dimFilter);
+    if (precomputed[key]) {
+      return { ...precomputed[key], source: 'precomputed' };
+    }
+  }
+
+  if (n < 50) return { n, rel: 0, source: 'live' };
+
+  const inc = rows.map(i => cols.inc[i]);
+  const w = rows.map(i => cols.weight[i]);
+  const wTotal = w.reduce((a,b) => a+b, 0);
+
+  const wMed = wPercentile(inc, w, 0.5);
+  const wMean = inc.reduce((a, v, i) => a + v * w[i], 0) / wTotal;
+  const p25 = wPercentile(inc, w, 0.25);
+  const p75 = wPercentile(inc, w, 0.75);
+
+  return {
+    n, n_rep: wTotal,
+    med: Math.round(wMed), mean: Math.round(wMean),
+    p25: Math.round(p25), p75: Math.round(p75),
+    iqr: Math.round(p75 - p25),
+    rel: n >= 500 ? 3 : n >= 200 ? 2 : 1,
+    source: 'live',
+  };
+}
+
+function wPercentile(values, weights, q) {
+  const order = Array.from({length: values.length}, (_, i) => i).sort((a,b) => values[a]-values[b]);
+  const sortedV = order.map(i => values[i]);
+  const sortedW = order.map(i => weights[i]);
+  const cumW = [];
+  let cum = 0;
+  for (const w of sortedW) { cum += w; cumW.push(cum); }
+  const target = q * cumW[cumW.length - 1];
+  let idx = cumW.findIndex(c => c >= target);
+  if (idx < 0) idx = sortedV.length - 1;
+  return sortedV[idx];
+}
+
+// ============================================================
+// Stats display
+// ============================================================
+function renderStats(stats) {
+  if (!stats) { clearStats(); return; }
+  const { n, rel } = stats;
+
+  if (rel <= 0) {
+    document.getElementById('s-med').textContent = '—';
+    document.getElementById('s-mean').textContent = '—';
+    document.getElementById('s-p2575').textContent = '—';
+    document.getElementById('rel-badge').innerHTML = `<span class="reliability rel-0">⚠ Too few records (n=${n}) for statistics</span>`;
+    document.getElementById('n-info').textContent = '';
+    return;
+  }
+
+  const seStr = stats.se_med ? ` ±${fmt$(stats.se_med)} SE` : '';
+  document.getElementById('s-med').innerHTML = `${fmt$(stats.med)}<span class="stat-se">${seStr}</span>`;
+  document.getElementById('s-mean').textContent = fmt$(stats.mean);
+  document.getElementById('s-p2575').textContent = `${fmt$(stats.p25)} / ${fmt$(stats.p75)}`;
+  const relMsg = rel === 1 ? '⚠ Small sample — interpret with care' :
+                 rel === 2 ? '⚠ Moderate sample — interpret with care' : '';
+  document.getElementById('rel-badge').innerHTML = relMsg
+    ? `<span class="reliability rel-${rel}">${relMsg}</span>` : '';
+
+  const nRep = stats.n_rep ? ` · ~${(stats.n_rep / 1e6).toFixed(1)}M households` : '';
+  document.getElementById('n-info').textContent = `${n.toLocaleString()} survey records${nRep}`;
+}
+
+function clearStats() {
+  ['s-med','s-mean','s-p2575'].forEach(id => {
+    document.getElementById(id).textContent = '—';
+  });
+  document.getElementById('rel-badge').innerHTML = '';
+  document.getElementById('n-info').textContent = '';
+}
+
+// ============================================================
+// Dot chart
+function render() {
+  visibleRows = computeVisibleRows();
+  const stats = getStats();
+  renderStats(stats);
+  renderChart();
+  syncFilterButtons();
+  renderActiveChips();
+  renderLegend();
+  renderGroupBreakdown();
+}
+
+function renderChart() {
+  const svg = document.getElementById('chart-svg');
+  const W = svg.clientWidth || svg.parentElement.clientWidth;
+  const H = svg.clientHeight || svg.parentElement.clientHeight;
+  if (W < 10 || H < 10) return;
+
+  const marginL = 60, marginR = 20, marginT = 20, marginB = 40;
+  const chartW = W - marginL - marginR;
+  const chartH = H - marginT - marginB;
+
+  const cols = currentCols();
+  const dotRows = subsample(visibleRows, 3000);
+
+  d3.select(svg).selectAll('*').remove();
+
+  const xScale = d3.scaleLog()
+    .domain([1000, 2500000])
+    .range([0, chartW])
+    .clamp(true);
+
+  const medWeight = d3.median(dotRows, i => cols.weight[i]) || 1;
+  const rScale = w => Math.max(2, Math.min(8, (w / medWeight) * 4));
+
+  const BIN_PX = 8;
+  const binScale = d3.scaleLog().domain([1000, 2500000]).range([0, chartW / BIN_PX]);
+  const bins = {};
+  dotData = dotRows.map(i => {
+    const inc = Math.max(1000, cols.inc[i]);
+    const bx = Math.round(binScale(inc));
+    if (!bins[bx]) bins[bx] = [];
+    const slot = bins[bx].length;
+    bins[bx].push(i);
+    const jitter = (slot % 2 === 0 ? 1 : -1) * Math.ceil(slot / 2) * (BIN_PX - 1);
+    return {
+      i,
+      x: xScale(inc) + marginL,
+      y: chartH / 2 + jitter + marginT,
+      r: rScale(cols.weight[i]),
+      topcode: cols.topcoded[i] === 1,
+    };
+  });
+
+  const svgEl = d3.select(svg);
+  const palette = PALETTES[colorMode] || PALETTES.income_type;
+
+  // X axis
+  const gAxis = svgEl.append('g')
+    .attr('transform', `translate(${marginL},${marginT + chartH})`);
+  gAxis.call(
+    d3.axisBottom(xScale)
+      .tickValues([5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000])
+      .tickFormat(d => d >= 1e6 ? `$${d/1e6}M` : d >= 1e3 ? `$${d/1e3}k` : `$${d}`)
+  )
+  .selectAll('text').style('fill', '#8892b0').style('font-size', '11px');
+  gAxis.selectAll('line,path').style('stroke', '#2e3350');
+
+  // Gridlines
+  const gGrid = svgEl.append('g').attr('transform', `translate(${marginL},${marginT})`);
+  gGrid.call(
+    d3.axisLeft(d3.scaleLinear().domain([0,1]).range([chartH, 0]))
+      .tickSize(-chartW).tickValues([])
+  )
+  .select('.domain').remove();
+
+  // Dots
+  svgEl.append('g')
+    .selectAll('circle')
+    .data(dotData)
+    .join('circle')
+      .attr('cx', d => d.x)
+      .attr('cy', d => d.y)
+      .attr('r', d => d.r)
+      .attr('fill', d => d.topcode ? 'none' : dotColor(d.i, cols, palette))
+      .attr('stroke', d => d.topcode ? '#c9a227' : dotColor(d.i, cols, palette))
+      .attr('stroke-width', d => d.topcode ? 1.5 : 0.5)
+      .attr('opacity', 0.75)
+      .attr('pointer-events', 'all')
+      .on('mouseover', (event, d) => showTooltip(event, d.i))
+      .on('mousemove', (event) => moveTooltip(event))
+      .on('mouseout', hideTooltip);
+
+  // Topcode ⊕
+  svgEl.append('g')
+    .selectAll('text.tc')
+    .data(dotData.filter(d => d.topcode))
+    .join('text')
+      .attr('class', 'tc')
+      .attr('x', d => d.x)
+      .attr('y', d => d.y + 4)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', d => d.r * 1.8)
+      .attr('fill', '#c9a227')
+      .attr('pointer-events', 'none')
+      .text('⊕');
+}
+
+// ============================================================
+// Group breakdown (by color)
+// ============================================================
+function renderGroupBreakdown() {
+  const container = document.getElementById('group-breakdown');
+  if (!container) return;
+  if (!visibleRows || visibleRows.length === 0) { container.innerHTML = ''; return; }
+
+  const cols = nationalTable;
+  const colName = colorMode === 'state' ? 'state' : colorMode;
+
+  if (colorMode === 'state') {
+    if (stateColorMap.size === 0) { container.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:8px 0">Select states in the Geo tab to see breakdown.</div>'; return; }
+    const groups = new Map();
+    for (const i of visibleRows) {
+      const fips = cols.state[i];
+      const idx = stateColorMap.get(fips);
+      if (idx == null) continue;
+      const color = idx < STATE_PALETTE.length ? STATE_PALETTE[idx] : '#888';
+      if (!groups.has(fips)) groups.set(fips, { incs: [], weights: [], color });
+      groups.get(fips).incs.push(cols.inc[i]);
+      groups.get(fips).weights.push(cols.weight[i]);
+    }
+    const rows = [...groups.entries()].map(([fips, g]) => ({
+      lbl: codebook?.states?.[String(fips)]?.name ?? `State ${fips}`,
+      med: g.incs.length > 0 ? wPercentile(g.incs, g.weights, 0.5) : null,
+      mean: g.incs.length > 0 ? g.incs.reduce((s,v,i) => s + v * g.weights[i], 0) / g.weights.reduce((a,b)=>a+b,0) : null,
+      totalW: g.weights.reduce((a,b)=>a+b,0),
+      color: g.color,
+    }));
+    _renderBreakdownRows(container, rows, visibleRows.length);
+    return;
+  }
+
+  const palette = PALETTES[colorMode];
+  if (!palette) { container.innerHTML = ''; return; }
+
+  const lb = codebook?.labels?.[colorMode] || {};
+  const groups = new Map();
+
+  for (const i of visibleRows) {
+    const v = cols[colName]?.[i];
+    if (v == null || palette[v] == null) continue;
+    if (!groups.has(v)) groups.set(v, { incs: [], weights: [] });
+    groups.get(v).incs.push(cols.inc[i]);
+    groups.get(v).weights.push(cols.weight[i]);
+  }
+
+  const rows = [...groups.entries()]
+    .map(([v, g]) => {
+      const totalW = g.weights.reduce((a,b)=>a+b,0);
+      return {
+        v,
+        lbl: lb[String(v)] ?? String(v),
+        med: wPercentile(g.incs, g.weights, 0.5),
+        mean: g.incs.reduce((s,val,i) => s + val * g.weights[i], 0) / totalW,
+        totalW,
+        color: palette[v],
+      };
+    })
+    .sort((a,b) => a.v - b.v);
+
+  _renderBreakdownRows(container, rows, visibleRows.length);
+}
+
+function _renderBreakdownRows(container, rows, n) {
+  if (rows.length === 0) { container.innerHTML = ''; return; }
+  const cmLabel = colorMode.replace(/_/g, ' ');
+  container.innerHTML = `
+    <div style="font-size:11px;color:var(--text-dimmer);margin-bottom:6px">Grouped by ${cmLabel} · median &amp; mean household income</div>
+    <div style="display:grid;grid-template-columns:10px 1fr auto auto auto;gap:4px 6px;align-items:baseline;font-size:11px">
+      <span></span>
+      <span style="color:var(--text-dimmer)">Group</span>
+      <span style="color:var(--text-dimmer)">Median</span>
+      <span style="color:var(--text-dimmer)">Mean</span>
+      <span style="color:var(--text-dimmer)">HH (M)</span>
+      ${rows.map(r => `
+        <span class="breakdown-dot" style="background:${r.color};align-self:center"></span>
+        <span class="breakdown-label">${r.lbl}</span>
+        <span class="breakdown-med">${r.med != null ? fmt$(r.med) : '—'}</span>
+        <span class="breakdown-med" style="color:var(--text-dim)">${r.mean != null ? fmt$(r.mean) : '—'}</span>
+        <span style="color:var(--text-dimmer);text-align:right">${r.totalW != null ? (r.totalW/1e6).toFixed(1) : '—'}</span>
+      `).join('')}
+    </div>
+    <div style="font-size:10px;color:var(--text-dimmer);margin-top:6px">${n.toLocaleString()} survey records · HH (M) = millions of households</div>
+  `;
+}
+
+// ============================================================
+// Legend — rebuild structure only on colorMode change; active state via syncLegendActive
+// ============================================================
+let _legendColorMode = null;
+
+function renderLegend() {
+  if (colorMode === _legendColorMode && colorMode !== 'state') {
+    syncLegendActive();
+    return;
+  }
+  _legendColorMode = colorMode;
+
+  const container = document.getElementById('legend');
+  container.innerHTML = '';
+
+  if (colorMode === 'state') {
+    // Only show entries for states that got a distinct palette color
+    for (const [fips, idx] of stateColorMap) {
+      if (idx >= STATE_PALETTE.length) continue;
+      const color = STATE_PALETTE[idx];
+      const name = codebook?.states?.[String(fips)]?.name ?? `State ${fips}`;
+      const item = document.createElement('div');
+      item.className = 'legend-item';
+      const dot = document.createElement('div');
+      dot.className = 'legend-dot';
+      dot.style.background = color;
+      item.append(dot, document.createTextNode(name));
+      container.append(item);
+    }
+    // "Other" = unselected states OR selected states beyond palette capacity
+    const totalStates = Object.keys(codebook?.states ?? {}).length;
+    const hasOther = selectedFips.size < totalStates || selectedFips.size > STATE_PALETTE.length;
+    if (hasOther) {
+      const item = document.createElement('div');
+      item.className = 'legend-item';
+      const dot = document.createElement('div');
+      dot.className = 'legend-dot';
+      dot.style.background = '#888';
+      item.append(dot, document.createTextNode('Other'));
+      container.append(item);
+    }
+    return;
+  }
+
+  const palette = PALETTES[colorMode];
+  const lb = codebook?.labels?.[colorMode] || {};
+
+  if (palette) {
+    palette.forEach((color, i) => {
+      if (color == null) return;
+      const lbl = lb[String(i)] ?? String(i);
+      const item = document.createElement('div');
+      item.className = 'legend-item';
+      item.dataset.val = i;
+      item.addEventListener('click', () => {
+        toggleFilter(colorMode, i);
+        syncFilterButtons();
+      });
+      const dot = document.createElement('div');
+      dot.className = 'legend-dot';
+      dot.style.background = color;
+      item.append(dot, document.createTextNode(lbl));
+      container.append(item);
+    });
+  }
+
+  const tc = document.createElement('div');
+  tc.className = 'legend-item';
+  tc.innerHTML = '<span class="legend-topcode">⊕</span> Topcoded';
+  container.append(tc);
+
+  syncLegendActive();
+}
+
+function syncLegendActive() {
+  document.querySelectorAll('#legend .legend-item[data-val]').forEach(item => {
+    const val = parseInt(item.dataset.val);
+    item.classList.toggle('active', !!(filters[colorMode]?.has(val)));
+  });
+}
+
+// ============================================================
+// Tooltip
+// ============================================================
+function showTooltip(event, i) {
+  const cols = currentCols();
+  const tt = document.getElementById('tooltip');
+
+  const inc = cols.inc[i];
+  const topcode = cols.topcoded[i] === 1;
+  const yr = codebook?.year_display?.[String(cols.year[i])] ?? String(cols.year[i]);
+  const stateName = codebook?.states?.[String(cols.state[i])]?.name ?? `State ${cols.state[i]}`;
+
+  tt.innerHTML = `
+    <div class="tt-income">${fmt$(inc)}${topcode ? ' <span class="tt-topcode">⊕ topcoded</span>' : ''}</div>
+    <div class="tt-dim">Wage income: ${fmt$(cols.wage_inc[i])}</div>
+    <div class="tt-dim">${label('age_bucket', cols.age_bucket[i])} · ${label('marst', cols.marst[i])} · ${label('educ', cols.educ[i])}</div>
+    <div class="tt-dim">${stateName} · ${label('metro', cols.metro[i])}</div>
+    <div class="tt-dim">${label('work_status', cols.work_status[i])} · ${label('multi_job_proxy', cols.multi_job_proxy[i])}</div>
+    <div class="tt-dim">${cols.kids[i] ? 'Kids present (' + label('youngest_child', cols.youngest_child[i]) + ')' : 'No children'}</div>
+    <div class="tt-dim">Weight: ${Math.round(cols.weight[i]).toLocaleString()} households represented</div>
+    <div class="tt-dim">Year: ${yr}</div>
+  `;
+  tt.style.display = 'block';
+  moveTooltip(event);
+}
+
+function moveTooltip(event) {
+  const tt = document.getElementById('tooltip');
+  const x = event.clientX + 14;
+  const y = event.clientY - 10;
+  const maxX = window.innerWidth - tt.offsetWidth - 10;
+  tt.style.left = Math.min(x, maxX) + 'px';
+  tt.style.top = y + 'px';
+}
+
+function hideTooltip() {
+  document.getElementById('tooltip').style.display = 'none';
+}
+
+// ============================================================
+// Filter UI
+// ============================================================
+const FILTER_DEFS = [
+  { id: 'f-age_bucket', dim: 'age_bucket' },
+  { id: 'f-sex', dim: 'sex' },
+  { id: 'f-marst', dim: 'marst' },
+  { id: 'f-educ', dim: 'educ' },
+  { id: 'f-race_ethnicity', dim: 'race_ethnicity' },
+  { id: 'f-kids', dim: 'kids' },
+  { id: 'f-metro', dim: 'metro' },
+  { id: 'f-work_status', dim: 'work_status' },
+  { id: 'f-income_type', dim: 'income_type' },
+  { id: 'f-year', dim: 'year' },
+  { id: 'f-housing', dim: 'housing' },
+  { id: 'f-multi_job_proxy', dim: 'multi_job_proxy' },
+];
+
+function buildFilterUI() {
+  for (const { id, dim } of FILTER_DEFS) {
+    const container = document.getElementById(id);
+    if (!container) continue;
+    const lb = codebook?.labels?.[dim];
+    if (!lb) continue;
+    container.innerHTML = '';
+    for (const [val, lbl] of Object.entries(lb)) {
+      const btn = document.createElement('button');
+      btn.className = 'f-btn';
+      btn.dataset.dim = dim;
+      btn.dataset.val = val;
+      btn.textContent = lbl;
+      btn.addEventListener('click', () => toggleFilter(dim, parseInt(val)));
+      container.append(btn);
+    }
+  }
+}
+
+// Tri-state filter: no filter→exclusive, sole active→clear, active-in-multi→exclusive, inactive→add
+function toggleFilter(dim, val) {
+  const cur = filters[dim];
+  if (!cur || cur.size === 0) {
+    filters[dim] = new Set([val]);
+  } else if (cur.size === 1 && cur.has(val)) {
+    delete filters[dim];
+  } else if (cur.has(val)) {
+    filters[dim] = new Set([val]);
+  } else {
+    cur.add(val);
+  }
+  render();
+}
+
+function syncFilterButtons() {
+  document.querySelectorAll('.f-btn').forEach(btn => {
+    const dim = btn.dataset.dim;
+    const val = parseInt(btn.dataset.val);
+    btn.classList.toggle('active', !!(filters[dim] && filters[dim].has(val)));
+  });
+}
+
+// ============================================================
+// Active chips
+// ============================================================
+const DIM_LABELS = {
+  age_bucket: 'Age', sex: 'Sex', marst: 'Marital', educ: 'Educ',
+  work_status: 'Work', income_type: 'Income', race_ethnicity: 'Race',
+  kids: 'Kids', multi_job_proxy: '2nd job', metro: 'Metro',
+  housing: 'Housing', year: 'Year',
+};
+
+function renderActiveChips() {
+  const container = document.getElementById('active-chips');
+  container.innerHTML = '';
+
+  // State chips
+  for (const fips of selectedFips) {
+    const name = codebook?.states?.[String(fips)]?.name ?? `State ${fips}`;
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.innerHTML = `<span>State: ${name}</span><span class="x">✕</span>`;
+    chip.addEventListener('click', () => {
+      toggleState(fips);
+    });
+    container.append(chip);
+  }
+
+  // Filter chips
+  for (const [dim, vals] of Object.entries(filters)) {
+    if (!vals || vals.size === 0) continue;
+    for (const val of vals) {
+      const chip = document.createElement('div');
+      chip.className = 'chip';
+      chip.innerHTML = `<span>${DIM_LABELS[dim] ?? dim}: ${label(dim, val)}</span><span class="x">✕</span>`;
+      chip.addEventListener('click', () => {
+        filters[dim].delete(val);
+        if (filters[dim].size === 0) delete filters[dim];
+        syncFilterButtons();
+        render();
+      });
+      container.append(chip);
+    }
+  }
+}
+
+// ============================================================
+// Geography tab — state checkboxes + region shortcuts
+// ============================================================
+function buildGeographyTab() {
+  const regionLabels = codebook?.labels?.region ?? {};
+  const stateEntries = Object.entries(codebook?.states ?? {})
+    .sort((a,b) => a[1].name.localeCompare(b[1].name));
+
+  // Alphabetical flat state list
+  const stateList = document.getElementById('state-list');
+  stateList.innerHTML = stateEntries.map(([fipsStr, info]) => {
+    const fips = parseInt(fipsStr);
+    return `<label class="state-check-label" data-fips="${fips}">
+      <input type="checkbox" class="state-cb" data-fips="${fips}" value="${fips}">
+      ${info.name}
+    </label>`;
+  }).join('');
+
+  // Wire state checkboxes
+  stateList.querySelectorAll('.state-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const fips = parseInt(cb.dataset.fips);
+      if (cb.checked) selectedFips.add(fips);
+      else selectedFips.delete(fips);
+      syncStateCheckboxes();
+      updateStateColorMap();
+      render();
+    });
+  });
+
+  // Search
+  document.getElementById('state-search').addEventListener('input', function() {
+    const q = this.value.toLowerCase().trim();
+    stateList.querySelectorAll('.state-check-label').forEach(lbl => {
+      lbl.style.display = !q || lbl.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+
+  document.getElementById('btn-clear-states').addEventListener('click', () => {
+    selectedFips.clear();
+    updateStateColorMap();
+    syncStateCheckboxes();
+    render();
+  });
+}
+
+
+function toggleState(fips) {
+  if (selectedFips.has(fips)) selectedFips.delete(fips);
+  else selectedFips.add(fips);
+  syncStateCheckboxes();
+  updateStateColorMap();
+  render();
+}
+
+function syncStateCheckboxes() {
+  document.querySelectorAll('.state-cb').forEach(cb => {
+    cb.checked = selectedFips.has(parseInt(cb.dataset.fips));
+  });
+  const el = document.getElementById('state-count');
+  if (el) el.textContent = selectedFips.size > 0 ? `${selectedFips.size} selected` : '';
+  const clearBtn = document.getElementById('btn-clear-states');
+  if (clearBtn) clearBtn.style.display = selectedFips.size > 0 ? '' : 'none';
+}
+
+
+// ============================================================
+// Color mode
+// ============================================================
+document.querySelectorAll('.cm-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.cm-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    colorMode = btn.dataset.mode;
+    _legendColorMode = null;  // force full legend rebuild
+    updateDotColors();
+    renderLegend();
+    renderGroupBreakdown();
+  });
+});
+
+// ============================================================
+// Tabs
+// ============================================================
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+let breakdownExpanded = false;
+document.getElementById('btn-expand-breakdown').addEventListener('click', () => {
+  breakdownExpanded = !breakdownExpanded;
+  const panel = document.getElementById('stats-detail');
+  const btn = document.getElementById('btn-expand-breakdown');
+  panel.style.maxHeight = breakdownExpanded ? 'none' : '';
+  btn.textContent = breakdownExpanded ? 'collapse ▴' : 'expand ▾';
+});
+
+document.querySelectorAll('.stats-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.stats-tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.stats-tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('stats-' + btn.dataset.statsTab).classList.add('active');
+  });
+});
+
+
+// ============================================================
+// Clear all
+// ============================================================
+document.getElementById('btn-clear').addEventListener('click', () => {
+  filters = {};
+  selectedFips.clear();
+  updateStateColorMap();
+  syncStateCheckboxes();
+  syncFilterButtons();
+  render();
+});
+
+// ============================================================
+// Resize
+// ============================================================
+const ro = new ResizeObserver(() => renderChart());
+ro.observe(document.getElementById('chart-wrap'));
+
+// ============================================================
+// Loading overlay
+// ============================================================
+function setLoading(msg) {
+  document.getElementById('loading').style.display = 'flex';
+  document.getElementById('loading-msg').textContent = msg;
+}
+function hideLoading() {
+  document.getElementById('loading').style.display = 'none';
+}
+
+// ============================================================
+// Boot
+// ============================================================
+init().catch(err => {
+  setLoading(`Error: ${err.message}`);
+  console.error(err);
+});
+</script>
+</body>
+</html>
