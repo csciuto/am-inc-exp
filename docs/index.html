@@ -68,7 +68,8 @@
   .brush-layer .selection { fill: var(--accent); fill-opacity: 0.12; stroke: var(--accent); stroke-width: 1; }
   .brush-layer .handle { fill: var(--accent); fill-opacity: 0.6; rx: 2; }
   .brush-layer .overlay { cursor: crosshair; }
-  #brush-range-info { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; }
+  #stats-range { color: var(--text-dim); font-size: 12px; }
+  #stats-range .no-range { padding: 16px 0; text-align: center; }
 
 
   /* ---- canvas + axes ---- */
@@ -169,6 +170,7 @@
       <div id="stats-tab-bar">
         <button class="stats-tab-btn active" data-stats-tab="summary">Stats</button>
         <button class="stats-tab-btn" data-stats-tab="detail">By group</button>
+        <button class="stats-tab-btn" data-stats-tab="range">Range</button>
       </div>
       <div id="stats-summary" class="stats-tab-panel active">
         <div id="stats-panel">
@@ -177,7 +179,6 @@
           <div class="stat-row"><span class="stat-label">P25 / P75</span><span class="stat-val" id="s-p2575">—</span></div>
           <div id="rel-badge"></div>
           <div id="n-info"></div>
-          <div id="brush-range-info"></div>
         </div>
       </div>
       <div id="stats-detail" class="stats-tab-panel">
@@ -185,6 +186,9 @@
           <button id="btn-expand-breakdown" style="background:none;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;padding:0">expand ▾</button>
         </div>
         <div id="group-breakdown"></div>
+      </div>
+      <div id="stats-range" class="stats-tab-panel">
+        <div id="brush-range-info"></div>
       </div>
     </div>
 
@@ -533,27 +537,34 @@ function updateDotOpacity() {
     .attr('pointer-events', d => isDimmed(d.i, cols, hasFilters) ? 'none' : 'all');
 }
 
-function renderBrushInfo() {
+function renderBrushInfo(transient) {
   const el = document.getElementById('brush-range-info');
-  if (!brushRange || !visibleRows || !visibleRows.length) { el.innerHTML = ''; return; }
+  const r = transient || brushRange;
+  if (!r) {
+    el.innerHTML = '<div class="no-range">Click Range, then drag on the chart to select an income band.</div>';
+    return;
+  }
+  if (!visibleRows || !visibleRows.length) { el.innerHTML = ''; return; }
   const cols = nationalTable;
-  const {lo, hi} = brushRange;
+  const {lo, hi} = r;
   const rangeRows = visibleRows.filter(i => cols.inc[i] >= lo && cols.inc[i] <= hi);
   const totalW = visibleRows.reduce((s, i) => s + cols.weight[i], 0);
   const rangeW = rangeRows.reduce((s, i) => s + cols.weight[i], 0);
   const pct = totalW > 0 ? (rangeW / totalW * 100).toFixed(1) : '0';
-  let medStr = '—', meanStr = '—';
+  let medStr = '—', meanStr = '—', p25Str = '—', p75Str = '—';
   if (rangeRows.length >= 5) {
     const inc = rangeRows.map(i => cols.inc[i]);
     const w   = rangeRows.map(i => cols.weight[i]);
     medStr  = fmt$(wPercentile(inc, w, 0.5));
     meanStr = fmt$(inc.reduce((s, v, k) => s + v * w[k], 0) / w.reduce((a, b) => a + b, 0));
+    p25Str  = fmt$(wPercentile(inc, w, 0.25));
+    p75Str  = fmt$(wPercentile(inc, w, 0.75));
   }
-  el.innerHTML = `<div class="panel-title">Selected range</div>
-    <div class="stat-row"><span class="stat-label">${fmt$(lo)} – ${fmt$(hi)}</span></div>
+  el.innerHTML = `<div class="stat-row" style="margin-bottom:4px"><span class="stat-label" style="font-weight:600">${fmt$(lo)} – ${fmt$(hi)}</span></div>
     <div class="stat-row"><span class="stat-label">Households</span><span class="stat-val">${pct}% of slice</span></div>
     <div class="stat-row"><span class="stat-label">Median</span><span class="stat-val">${medStr}</span></div>
-    <div class="stat-row"><span class="stat-label">Mean</span><span class="stat-val">${meanStr}</span></div>`;
+    <div class="stat-row"><span class="stat-label">Mean</span><span class="stat-val">${meanStr}</span></div>
+    <div class="stat-row"><span class="stat-label">P25 / P75</span><span class="stat-val">${p25Str} / ${p75Str}</span></div>`;
 }
 
 // ============================================================
@@ -746,7 +757,7 @@ function applyUrl() {
 
   const brushLo = params.get('brush_lo');
   const brushHi = params.get('brush_hi');
-  if (brushLo && brushHi) brushRange = {lo: parseInt(brushLo), hi: parseInt(brushHi)};
+  if (brushLo && brushHi) { brushRange = {lo: parseInt(brushLo), hi: parseInt(brushHi)}; switchStatsTab('range'); }
 
   filters = {};
   for (const [key, val] of params.entries()) {
@@ -880,25 +891,30 @@ function renderChart() {
   // Brush layer (on top so it can capture drag events)
   d3brush = d3.brushX()
     .extent([[0, 0], [chartW, chartH]])
+    .on('brush', function(event) {
+      if (!event.selection) return;
+      const [x0, x1] = event.selection;
+      const lo = Math.round(xScale.invert(x0));
+      const hi = Math.round(xScale.invert(x1));
+      renderBrushInfo({lo, hi});
+      switchStatsTab('range');
+    })
     .on('end', function(event) {
       if (!event.selection) {
-        // click without drag — just deactivate brush mode
         brushModeActive = false;
         document.getElementById('btn-brush').classList.remove('active');
         brushLayer.select('.overlay').attr('pointer-events', 'none');
         return;
       }
       const [x0, x1] = event.selection;
-      brushRange = {
-        lo: Math.round(xScale.invert(x0)),
-        hi: Math.round(xScale.invert(x1)),
-      };
+      brushRange = {lo: Math.round(xScale.invert(x0)), hi: Math.round(xScale.invert(x1))};
       brushModeActive = false;
       document.getElementById('btn-brush').classList.remove('active');
       brushLayer.select('.overlay').attr('pointer-events', 'none');
       updateDotOpacity();
       renderBrushInfo();
       renderActiveChips();
+      switchStatsTab('range');
       pushUrl();
     });
 
@@ -1210,6 +1226,7 @@ function renderActiveChips() {
       updateDotOpacity();
       renderBrushInfo();
       renderActiveChips();
+      switchStatsTab('summary');
       pushUrl();
     });
     container.append(chip);
@@ -1348,13 +1365,14 @@ document.getElementById('btn-expand-breakdown').addEventListener('click', () => 
   btn.textContent = breakdownExpanded ? 'collapse ▴' : 'expand ▾';
 });
 
+function switchStatsTab(name) {
+  document.querySelectorAll('.stats-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.statsTab === name));
+  document.querySelectorAll('.stats-tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('stats-' + name).classList.add('active');
+}
+
 document.querySelectorAll('.stats-tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.stats-tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.stats-tab-panel').forEach(p => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById('stats-' + btn.dataset.statsTab).classList.add('active');
-  });
+  btn.addEventListener('click', () => switchStatsTab(btn.dataset.statsTab));
 });
 
 
@@ -1371,6 +1389,7 @@ document.getElementById('btn-brush').addEventListener('click', () => {
     updateDotOpacity();
     renderBrushInfo();
     renderActiveChips();
+    switchStatsTab('summary');
     pushUrl();
   } else {
     // Enter brush mode
@@ -1387,6 +1406,7 @@ document.getElementById('btn-clear').addEventListener('click', () => {
   brushModeActive = false;
   document.getElementById('btn-brush').classList.remove('active');
   if (brushLayer) brushLayer.call(d3brush.move, null);
+  switchStatsTab('summary');
   updateStateColorMap();
   syncStateCheckboxes();
   syncFilterButtons();

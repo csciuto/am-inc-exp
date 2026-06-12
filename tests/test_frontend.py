@@ -400,8 +400,17 @@ class TestBrushRange:
     def test_brush_shows_range_stats(self, page: Page):
         self._drag_brush(page, 0.2, 0.6)
         expect(page.locator("#brush-range-info")).to_be_visible()
-        expect(page.locator("#brush-range-info")).to_contain_text("Selected range")
+        expect(page.locator("#brush-range-info")).to_contain_text("Households")
         expect(page.locator("#brush-range-info")).to_contain_text("%")
+
+    def test_brush_switches_to_range_tab(self, page: Page):
+        self._drag_brush(page, 0.2, 0.6)
+        expect(page.locator(".stats-tab-btn[data-stats-tab='range']")).to_have_class(re.compile(r"active"))
+
+    def test_brush_clear_switches_back_to_stats_tab(self, page: Page):
+        self._drag_brush(page, 0.2, 0.6)
+        page.locator("#active-chips .chip").filter(has_text="Range").click()
+        expect(page.locator(".stats-tab-btn[data-stats-tab='summary']")).to_have_class(re.compile(r"active"))
 
     def test_brush_stats_show_dollar_values(self, page: Page):
         self._drag_brush(page, 0.2, 0.6)
@@ -410,12 +419,7 @@ class TestBrushRange:
     def test_brush_chip_clear_removes_stats(self, page: Page):
         self._drag_brush(page, 0.2, 0.6)
         expect(page.locator("#brush-range-info")).to_be_visible()
-        # Click the Range chip to clear
-        chips = page.locator("#active-chips .chip")
-        for i in range(chips.count()):
-            if "Range" in chips.nth(i).text_content():
-                chips.nth(i).click()
-                break
+        page.locator("#active-chips .chip").filter(has_text="Range").click()
         expect(page.locator("#brush-range-info")).to_be_hidden()
 
     def test_clear_all_removes_brush(self, page: Page):
