@@ -336,6 +336,7 @@ let colorMode = 'income_type';
 
 let visibleRows = [];
 let dotData = [];
+let chartScope = null;
 
 // ============================================================
 // Color palettes
@@ -422,6 +423,7 @@ async function init() {
   buildFipsToRegion();
   buildFilterUI();
   buildGeographyTab();
+  applyUrl();
   hideLoading();
   renderLegend();
   render();
@@ -485,6 +487,28 @@ function computeVisibleRows() {
   return result;
 }
 
+
+function computeScope() {
+  return selectedFips.size === 0 ? 'national' : [...selectedFips].sort().join(',');
+}
+
+function matchesFilters(i, cols) {
+  if (selectedFips.size > 0 && !selectedFips.has(cols.state[i])) return false;
+  for (const [dim, vals] of Object.entries(filters)) {
+    if (!vals || vals.size === 0) continue;
+    if (!cols[dim]) continue;
+    if (!vals.has(cols[dim][i])) return false;
+  }
+  return true;
+}
+
+function updateDotOpacity() {
+  const cols = currentCols();
+  const hasFilters = selectedFips.size > 0 || Object.values(filters).some(s => s && s.size > 0);
+  d3.select('#chart-svg').selectAll('circle')
+    .attr('opacity', d => (hasFilters && !matchesFilters(d.i, cols)) ? 0.12 : 0.75)
+    .attr('pointer-events', d => (hasFilters && !matchesFilters(d.i, cols)) ? 'none' : 'all');
+}
 
 // ============================================================
 // Dot color
@@ -640,16 +664,66 @@ function clearStats() {
 }
 
 // ============================================================
+// URL state (deep-link)
+// ============================================================
+function pushUrl() {
+  const params = new URLSearchParams();
+  if (colorMode !== 'income_type') params.set('cm', colorMode);
+  for (const [dim, vals] of Object.entries(filters)) {
+    if (vals && vals.size > 0) params.set(dim, [...vals].sort().join(','));
+  }
+  if (selectedFips.size > 0) params.set('states', [...selectedFips].sort().join(','));
+  const qs = params.toString();
+  history.replaceState(null, '', qs ? '#' + qs : location.pathname + location.search);
+}
+
+function applyUrl() {
+  const hash = location.hash.slice(1);
+  if (!hash) return;
+  const params = new URLSearchParams(hash);
+
+  const cm = params.get('cm');
+  if (cm) {
+    colorMode = cm;
+    document.querySelectorAll('.cm-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === cm));
+    _legendColorMode = null;
+  }
+
+  const statesStr = params.get('states');
+  if (statesStr) {
+    selectedFips.clear();
+    statesStr.split(',').forEach(s => { const f = parseInt(s); if (!isNaN(f)) selectedFips.add(f); });
+    syncStateCheckboxes();
+    updateStateColorMap();
+  }
+
+  filters = {};
+  for (const [key, val] of params.entries()) {
+    if (key === 'cm' || key === 'states') continue;
+    const nums = val.split(',').map(Number).filter(v => !isNaN(v));
+    if (nums.length) filters[key] = new Set(nums);
+  }
+}
+
+window.addEventListener('popstate', () => { applyUrl(); render(); });
+
+// ============================================================
 // Dot chart
 function render() {
   visibleRows = computeVisibleRows();
   const stats = getStats();
   renderStats(stats);
-  renderChart();
+  const scope = computeScope();
+  if (scope !== chartScope || dotData.length === 0) {
+    renderChart();
+  } else {
+    updateDotOpacity();
+  }
   syncFilterButtons();
   renderActiveChips();
   renderLegend();
   renderGroupBreakdown();
+  pushUrl();
 }
 
 function renderChart() {
@@ -658,12 +732,16 @@ function renderChart() {
   const H = svg.clientHeight || svg.parentElement.clientHeight;
   if (W < 10 || H < 10) return;
 
+  chartScope = computeScope();
+
   const marginL = 60, marginR = 20, marginT = 20, marginB = 40;
   const chartW = W - marginL - marginR;
   const chartH = H - marginT - marginB;
 
   const cols = currentCols();
-  const dotRows = subsample(visibleRows, 3000);
+  const allRowIndices = Array.from({length: cols.inc.length}, (_, i) => i);
+  const dotRows = subsample(allRowIndices, 3000);
+  const hasFilters = selectedFips.size > 0 || Object.values(filters).some(s => s && s.size > 0);
 
   d3.select(svg).selectAll('*').remove();
 
@@ -727,8 +805,8 @@ function renderChart() {
       .attr('fill', d => d.topcode ? 'none' : dotColor(d.i, cols, palette))
       .attr('stroke', d => d.topcode ? '#c9a227' : dotColor(d.i, cols, palette))
       .attr('stroke-width', d => d.topcode ? 1.5 : 0.5)
-      .attr('opacity', 0.75)
-      .attr('pointer-events', 'all')
+      .attr('opacity', d => (hasFilters && !matchesFilters(d.i, cols)) ? 0.12 : 0.75)
+      .attr('pointer-events', d => (hasFilters && !matchesFilters(d.i, cols)) ? 'none' : 'all')
       .on('mouseover', (event, d) => showTooltip(event, d.i))
       .on('mousemove', (event) => moveTooltip(event))
       .on('mouseout', hideTooltip);
@@ -1138,6 +1216,7 @@ document.querySelectorAll('.cm-btn').forEach(btn => {
     updateDotColors();
     renderLegend();
     renderGroupBreakdown();
+    pushUrl();
   });
 });
 
