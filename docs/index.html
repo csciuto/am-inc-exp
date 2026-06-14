@@ -40,8 +40,12 @@
   .stats-tab-btn { flex: 1; background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 4px; font-size: 11px; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
   .stats-tab-btn:hover { color: var(--text); }
   .stats-tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
-  .stats-tab-panel { display: none; padding: 10px 12px; overflow-y: auto; max-height: 160px; }
+  .stats-tab-panel { display: none; padding: 10px 12px; }
   .stats-tab-panel.active { display: block; }
+  #stats-detail { max-height: 170px; overflow: hidden; }
+  #stats-range { max-height: 300px; overflow-y: auto; }
+  .expand-bar { display: flex; align-items: center; justify-content: center; width: 100%; border: none; border-top: 1px solid var(--border); background: none; padding: 5px 0; margin-top: 6px; color: var(--text-dimmer); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; }
+  .expand-bar:hover { color: var(--text-dim); background: var(--surface2); }
   #sidebar-body { flex: 1; overflow-y: auto; min-height: 0; }
   #sidebar-body::-webkit-scrollbar { width: 4px; }
   #sidebar-body::-webkit-scrollbar-track { background: transparent; }
@@ -65,6 +69,10 @@
   #btn-clear:hover { color: var(--text); border-color: var(--text-dim); }
   #btn-brush { font-size: 11px; color: var(--text-dim); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; cursor: pointer; }
   #btn-brush:hover, #btn-brush.active { color: var(--accent); border-color: var(--accent); }
+  #view-toggle { display: flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .view-btn { font-size: 11px; color: var(--text-dim); background: none; border: none; padding: 4px 10px; cursor: pointer; }
+  .view-btn:hover { color: var(--text); background: var(--surface2); }
+  .view-btn.active { color: var(--bg); background: var(--accent); }
   .brush-layer .selection { fill: var(--accent); fill-opacity: 0.12; stroke: var(--accent); stroke-width: 1; }
   .brush-layer .handle { fill: var(--accent); fill-opacity: 0.6; rx: 2; }
   .brush-layer .overlay { cursor: crosshair; }
@@ -182,13 +190,13 @@
         </div>
       </div>
       <div id="stats-detail" class="stats-tab-panel">
-        <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
-          <button id="btn-expand-breakdown" style="background:none;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;padding:0">expand ▾</button>
-        </div>
+        <button id="btn-expand-breakdown" class="expand-bar">By group ▾</button>
         <div id="group-breakdown"></div>
       </div>
       <div id="stats-range" class="stats-tab-panel">
         <div id="brush-range-info"></div>
+        <button id="btn-expand-range" class="expand-bar" style="display:none">By group ▾</button>
+        <div id="range-breakdown" style="display:none"></div>
       </div>
     </div>
 
@@ -305,6 +313,11 @@
     <div id="toolbar">
       <div id="active-chips"></div>
       <button id="btn-brush">Range</button>
+      <div id="view-toggle">
+        <button class="view-btn active" data-view="dots">Dots</button>
+        <button class="view-btn" data-view="bars">Bars</button>
+        <button class="view-btn" data-view="pct">100%</button>
+      </div>
       <button id="btn-clear">Clear all</button>
     </div>
     <div id="legend"></div>
@@ -353,6 +366,7 @@ let brushRange = null;   // {lo, hi} income values, or null
 let brushLayer = null;   // D3 selection of brush <g>
 let d3brush = null;      // D3 brush object
 let brushModeActive = false;
+let viewMode = 'dots';   // 'dots' | 'bars'
 
 // ============================================================
 // Color palettes
@@ -545,7 +559,7 @@ function renderBrushInfo(transient) {
     return;
   }
   if (!visibleRows || !visibleRows.length) { el.innerHTML = ''; return; }
-  const cols = nationalTable;
+  const cols = currentCols();
   const {lo, hi} = r;
   const rangeRows = visibleRows.filter(i => cols.inc[i] >= lo && cols.inc[i] <= hi);
   const totalW = visibleRows.reduce((s, i) => s + cols.weight[i], 0);
@@ -562,6 +576,84 @@ function renderBrushInfo(transient) {
     <div class="stat-row"><span class="stat-label">Households</span><span class="stat-val">${pct}% of slice</span></div>
     <div class="stat-row"><span class="stat-label">Median</span><span class="stat-val">${medStr}</span></div>
     <div class="stat-row"><span class="stat-label">Mean</span><span class="stat-val">${meanStr}</span></div>`;
+  renderRangeBreakdown(transient);
+}
+
+function renderRangeBreakdown(transient) {
+  const container = document.getElementById('range-breakdown');
+  const expandBtn = document.getElementById('btn-expand-range');
+  if (!container) return;
+  const r = transient || brushRange;
+  if (!r || !visibleRows || !visibleRows.length) {
+    container.innerHTML = '';
+    if (expandBtn) expandBtn.style.display = 'none';
+    return;
+  }
+
+  const cols = currentCols();
+  const rangeRows = visibleRows.filter(i => cols.inc[i] >= r.lo && cols.inc[i] <= r.hi);
+  if (rangeRows.length === 0) {
+    container.innerHTML = '';
+    if (expandBtn) expandBtn.style.display = 'none';
+    return;
+  }
+
+  if (expandBtn) expandBtn.style.display = '';
+  // Populate content; visibility controlled by the expand toggle
+  container.style.display = rangeBreakdownExpanded ? '' : 'none';
+
+  if (colorMode === 'state') {
+    const groups = new Map();
+    for (const i of rangeRows) {
+      const fips = cols.state[i];
+      const idx = stateColorMap.get(fips);
+      if (idx == null) continue;
+      const color = idx < STATE_PALETTE.length ? STATE_PALETTE[idx] : '#888';
+      if (!groups.has(fips)) groups.set(fips, { incs: [], weights: [], color });
+      groups.get(fips).incs.push(cols.inc[i]);
+      groups.get(fips).weights.push(cols.weight[i]);
+    }
+    const rows = [...groups.entries()].map(([fips, g]) => ({
+      lbl: codebook?.states?.[String(fips)]?.name ?? `State ${fips}`,
+      med: g.incs.length > 0 ? wPercentile(g.incs, g.weights, 0.5) : null,
+      mean: g.incs.length > 0 ? g.incs.reduce((s,v,i) => s + v * g.weights[i], 0) / g.weights.reduce((a,b)=>a+b,0) : null,
+      totalW: g.weights.reduce((a,b)=>a+b,0),
+      color: g.color,
+    }));
+    _renderBreakdownRows(container, rows, rangeRows.length);
+    return;
+  }
+
+  const palette = PALETTES[colorMode];
+  if (!palette) { container.innerHTML = ''; return; }
+
+  const lb = codebook?.labels?.[colorMode] || {};
+  const colName = colorMode === 'state' ? 'state' : colorMode;
+  const groups = new Map();
+
+  for (const i of rangeRows) {
+    const v = cols[colName]?.[i];
+    if (v == null || palette[v] == null) continue;
+    if (!groups.has(v)) groups.set(v, { incs: [], weights: [] });
+    groups.get(v).incs.push(cols.inc[i]);
+    groups.get(v).weights.push(cols.weight[i]);
+  }
+
+  const rows = [...groups.entries()]
+    .map(([v, g]) => {
+      const totalW = g.weights.reduce((a,b)=>a+b,0);
+      return {
+        v,
+        lbl: lb[String(v)] ?? String(v),
+        med: wPercentile(g.incs, g.weights, 0.5),
+        mean: g.incs.reduce((s,val,i) => s + val * g.weights[i], 0) / totalW,
+        totalW,
+        color: palette[v],
+      };
+    })
+    .sort((a,b) => a.v - b.v);
+
+  _renderBreakdownRows(container, rows, rangeRows.length);
 }
 
 // ============================================================
@@ -728,6 +820,7 @@ function pushUrl() {
   }
   if (selectedFips.size > 0) params.set('states', [...selectedFips].sort().join(','));
   if (brushRange) { params.set('brush_lo', brushRange.lo); params.set('brush_hi', brushRange.hi); }
+  if (viewMode !== 'dots') params.set('v', viewMode);
   const qs = params.toString();
   history.replaceState(null, '', qs ? '#' + qs : location.pathname + location.search);
 }
@@ -756,9 +849,15 @@ function applyUrl() {
   const brushHi = params.get('brush_hi');
   if (brushLo && brushHi) { brushRange = {lo: parseInt(brushLo), hi: parseInt(brushHi)}; switchStatsTab('range'); }
 
+  const v = params.get('v');
+  if (v) {
+    viewMode = v;
+    document.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  }
+
   filters = {};
   for (const [key, val] of params.entries()) {
-    if (['cm', 'states', 'brush_lo', 'brush_hi'].includes(key)) continue;
+    if (['cm', 'states', 'brush_lo', 'brush_hi', 'v'].includes(key)) continue;
     const nums = val.split(',').map(Number).filter(v => !isNaN(v));
     if (nums.length) filters[key] = new Set(nums);
   }
@@ -773,7 +872,9 @@ function render() {
   const stats = getStats();
   renderStats(stats);
   const scope = computeScope();
-  if (scope !== chartScope || dotData.length === 0) {
+  if (viewMode === 'bars' || viewMode === 'pct') {
+    renderStackedBars();
+  } else if (scope !== chartScope || dotData.length === 0) {
     renderChart();
   } else {
     updateDotOpacity();
@@ -885,7 +986,10 @@ function renderChart() {
       .attr('pointer-events', 'none')
       .text('⊕');
 
-  // Brush layer (on top so it can capture drag events)
+  attachBrushLayer(svgEl, xScale, marginL, marginT, chartW, chartH);
+}
+
+function attachBrushLayer(svgEl, xScale, marginL, marginT, chartW, chartH) {
   d3brush = d3.brushX()
     .extent([[0, 0], [chartW, chartH]])
     .on('brush', function(event) {
@@ -920,14 +1024,127 @@ function renderChart() {
     .attr('transform', `translate(${marginL},${marginT})`)
     .call(d3brush);
 
-  // Restore saved selection from brushRange
   if (brushRange) {
     const x0 = xScale(Math.max(1000, brushRange.lo));
     const x1 = xScale(Math.min(2500000, brushRange.hi));
     brushLayer.call(d3brush.move, [x0, x1]);
   }
-  // Overlay only active in brush mode
   brushLayer.select('.overlay').attr('pointer-events', brushModeActive ? 'all' : 'none');
+}
+
+// ============================================================
+// Stacked bars view
+// ============================================================
+function renderStackedBars() {
+  const svg = document.getElementById('chart-svg');
+  const W = svg.clientWidth || svg.parentElement.clientWidth;
+  const H = svg.clientHeight || svg.parentElement.clientHeight;
+  if (W < 10 || H < 10) return;
+
+  d3.select(svg).selectAll('*').remove();
+  brushLayer = null;
+  chartScope = null;  // force full renderChart() if we switch back to dots
+
+  const marginL = 60, marginR = 20, marginT = 20, marginB = 40;
+  const chartW = W - marginL - marginR;
+  const chartH = H - marginT - marginB;
+
+  const xScale = d3.scaleLog()
+    .domain([1000, 2500000])
+    .range([0, chartW])
+    .clamp(true);
+
+  const NUM_BINS = 60;
+  const binEdges = d3.range(NUM_BINS + 1).map(k =>
+    xScale.invert(k * chartW / NUM_BINS)
+  );
+
+  const cols = currentCols();
+  const palette = PALETTES[colorMode] || [];
+  const colName = colorMode === 'state' ? 'state' : colorMode;
+
+  // Build per-bin stacks from visibleRows (weighted)
+  const bins = Array.from({length: NUM_BINS}, () => new Map());
+  for (const i of visibleRows) {
+    const inc = Math.max(1000, cols.inc[i]);
+    const bx = xScale(inc);
+    const b = Math.min(NUM_BINS - 1, Math.floor(bx / (chartW / NUM_BINS)));
+    const key = cols[colName] != null ? cols[colName][i] : 0;
+    const w = cols.weight[i];
+    bins[b].set(key, (bins[b].get(key) || 0) + w);
+  }
+
+  const isPct = viewMode === 'pct';
+
+  // Max total weight across bins (for y-scale in absolute mode)
+  const maxTotal = d3.max(bins, b => d3.sum(b.values())) || 1;
+
+  const yScale = isPct
+    ? d3.scaleLinear().domain([0, 1]).range([chartH, 0])
+    : d3.scaleLinear().domain([0, maxTotal]).range([chartH, 0]);
+  const barW = Math.max(1, chartW / NUM_BINS - 1);
+
+  const svgEl = d3.select(svg);
+
+  // X axis
+  const xAxis = d3.axisBottom(xScale)
+    .tickValues([5000,10000,25000,50000,100000,250000,500000,1000000,2000000])
+    .tickFormat(d => d >= 1000000 ? `$${d/1000000}M` : `$${d/1000}k`);
+
+  svgEl.append('g')
+    .attr('class', 'axis')
+    .attr('transform', `translate(${marginL},${marginT + chartH})`)
+    .call(xAxis)
+    .call(g => g.select('.domain').attr('stroke', 'var(--border)'))
+    .call(g => g.selectAll('.tick line').attr('stroke', 'var(--border)'))
+    .call(g => g.selectAll('.tick text').attr('fill', 'var(--text-dim)').attr('font-size', 10));
+
+  // Y axis
+  const yAxis = isPct
+    ? d3.axisLeft(yScale).ticks(5).tickFormat(d => `${Math.round(d * 100)}%`)
+    : d3.axisLeft(yScale).ticks(5).tickFormat(d => `${(d/1e6).toFixed(1)}M`);
+
+  svgEl.append('g')
+    .attr('class', 'axis')
+    .attr('transform', `translate(${marginL},${marginT})`)
+    .call(yAxis)
+    .call(g => g.select('.domain').attr('stroke', 'var(--border)'))
+    .call(g => g.selectAll('.tick line').attr('stroke', 'var(--border)'))
+    .call(g => g.selectAll('.tick text').attr('fill', 'var(--text-dim)').attr('font-size', 10));
+
+  // Draw stacked bars
+  const g = svgEl.append('g').attr('transform', `translate(${marginL},${marginT})`);
+
+  bins.forEach((binMap, b) => {
+    if (binMap.size === 0) return;
+    const x = b * (chartW / NUM_BINS);
+    const total = d3.sum(binMap.values());
+    let y = chartH;
+    // Sort keys for consistent stacking order
+    const keys = [...binMap.keys()].sort((a, z) => a - z);
+    for (const key of keys) {
+      const segH = isPct
+        ? (binMap.get(key) / total) * chartH
+        : (binMap.get(key) / maxTotal) * chartH;
+      y -= segH;
+      let color = '#888';
+      if (colorMode === 'state') {
+        const idx = stateColorMap.get(key);
+        color = idx != null && idx < STATE_PALETTE.length ? STATE_PALETTE[idx] : '#888';
+      } else if (palette[key] != null) {
+        color = palette[key];
+      }
+      g.append('rect')
+        .attr('x', x)
+        .attr('y', y)
+        .attr('width', barW)
+        .attr('height', segH)
+        .attr('fill', color)
+        .attr('opacity', 0.85);
+    }
+  });
+
+  attachBrushLayer(svgEl, xScale, marginL, marginT, chartW, chartH);
 }
 
 // ============================================================
@@ -1334,9 +1551,11 @@ document.querySelectorAll('.cm-btn').forEach(btn => {
     btn.classList.add('active');
     colorMode = btn.dataset.mode;
     _legendColorMode = null;  // force full legend rebuild
-    updateDotColors();
+    if (viewMode === 'bars' || viewMode === 'pct') renderStackedBars();
+    else updateDotColors();
     renderLegend();
     renderGroupBreakdown();
+    renderBrushInfo();
     pushUrl();
   });
 });
@@ -1356,10 +1575,15 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 let breakdownExpanded = false;
 document.getElementById('btn-expand-breakdown').addEventListener('click', () => {
   breakdownExpanded = !breakdownExpanded;
-  const panel = document.getElementById('stats-detail');
-  const btn = document.getElementById('btn-expand-breakdown');
-  panel.style.maxHeight = breakdownExpanded ? 'none' : '';
-  btn.textContent = breakdownExpanded ? 'collapse ▴' : 'expand ▾';
+  document.getElementById('stats-detail').style.maxHeight = breakdownExpanded ? 'none' : '';
+  document.getElementById('btn-expand-breakdown').textContent = breakdownExpanded ? 'By group ▴' : 'By group ▾';
+});
+
+let rangeBreakdownExpanded = false;
+document.getElementById('btn-expand-range').addEventListener('click', () => {
+  rangeBreakdownExpanded = !rangeBreakdownExpanded;
+  document.getElementById('range-breakdown').style.display = rangeBreakdownExpanded ? '' : 'none';
+  document.getElementById('btn-expand-range').textContent = rangeBreakdownExpanded ? 'By group ▴' : 'By group ▾';
 });
 
 function switchStatsTab(name) {
@@ -1410,10 +1634,22 @@ document.getElementById('btn-clear').addEventListener('click', () => {
   render();
 });
 
+// View toggle (Dots / Bars)
+document.querySelectorAll('.view-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    viewMode = btn.dataset.view;
+    document.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b === btn));
+    render();
+  });
+});
+
 // ============================================================
 // Resize
 // ============================================================
-const ro = new ResizeObserver(() => renderChart());
+const ro = new ResizeObserver(() => {
+  if (viewMode === 'bars' || viewMode === 'pct') renderStackedBars();
+  else renderChart();
+});
 ro.observe(document.getElementById('chart-wrap'));
 
 // ============================================================
