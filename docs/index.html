@@ -457,6 +457,13 @@ async function init() {
 
   setLoading('Parsing data…');
   buildFipsToRegion();
+
+  // Hide UI elements for columns not present in the Arrow file
+  if (!nationalTable.has_roommate) {
+    document.querySelector('.cm-btn[data-mode="has_roommate"]')?.remove();
+    document.getElementById('f-has_roommate')?.closest('.filter-group')?.remove();
+  }
+
   buildFilterUI();
   buildGeographyTab();
   applyUrl();
