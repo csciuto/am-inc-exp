@@ -219,6 +219,7 @@
           <button class="cm-btn" data-mode="sex">Sex</button>
           <button class="cm-btn" data-mode="educ">Education</button>
           <button class="cm-btn" data-mode="marst">Marital status</button>
+          <button class="cm-btn" data-mode="has_roommate">Roommates</button>
           <button class="cm-btn" data-mode="race_ethnicity">Race/ethnicity</button>
           <button class="cm-btn" data-mode="housing">Housing</button>
           <button class="cm-btn" data-mode="kids">Kids</button>
@@ -242,6 +243,10 @@
         <div class="filter-group">
           <div class="stat-label">Marital status</div>
           <div class="filter-btns" id="f-marst"></div>
+        </div>
+        <div class="filter-group">
+          <div class="stat-label">Roommates</div>
+          <div class="filter-btns" id="f-has_roommate"></div>
         </div>
         <div class="filter-group">
           <div class="stat-label">Education</div>
@@ -378,6 +383,7 @@ const PALETTES = {
   work_status:     ['#4a7cbc', '#6bcc6b', '#c9a227', '#e07070', '#c94040', '#888', '#4a4a6a'],
   educ:            ['#c94040', '#e07070', '#c9a227', '#4a9c5e', '#4a7cbc'],
   marst:           ['#4a7cbc', '#c9a227', '#e07070', '#888', '#4a9c5e'],
+  has_roommate:    ['#8892b0', '#c9a227'],
   race_ethnicity:  ['#4a7cbc', '#4a9c5e', '#c9a227', '#bc6e4a', '#888'],
   multi_job_proxy: ['#666', '#c9a227', '#e07070', '#c94040'],
   age_bucket:      ['#8fbcdb', '#4a7cbc', '#4a9c9a', '#4a9c5e', '#c9a227', '#e07070', '#c94040', '#7a2020'],
@@ -1362,6 +1368,7 @@ const FILTER_DEFS = [
   { id: 'f-age_bucket', dim: 'age_bucket' },
   { id: 'f-sex', dim: 'sex' },
   { id: 'f-marst', dim: 'marst' },
+  { id: 'f-has_roommate', dim: 'has_roommate' },
   { id: 'f-educ', dim: 'educ' },
   { id: 'f-race_ethnicity', dim: 'race_ethnicity' },
   { id: 'f-kids', dim: 'kids' },
@@ -1419,7 +1426,7 @@ function syncFilterButtons() {
 // Active chips
 // ============================================================
 const DIM_LABELS = {
-  age_bucket: 'Age', sex: 'Sex', marst: 'Marital', educ: 'Educ',
+  age_bucket: 'Age', sex: 'Sex', marst: 'Marital', educ: 'Educ', has_roommate: 'Roommates',
   work_status: 'Work', income_type: 'Income', race_ethnicity: 'Race',
   kids: 'Kids', multi_job_proxy: '2nd job', metro: 'Metro',
   housing: 'Housing', year: 'Year',

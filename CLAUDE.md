@@ -54,13 +54,14 @@ The preprocessor is the only computation. The browser does live weighted stats o
 
 ## Data schema
 
-Arrow columns: `id` (uint32), `inc` (uint32, HHINCOME), `wage_inc` (uint32), `weight` (float32, ASECWTH), `state` (uint8, STATEFIP), `year` (uint8, 0=survey year 2023/income year 2022, 1=2024/2023, 2=2025/2024), then uint8 derived vars: `age_bucket`, `sex`, `marst`, `educ`, `region`, `metro`, `kids`, `youngest_child`, `work_status`, `hours_category`, `weeks_worked`, `multi_job_proxy`, `income_type`, `topcoded`, `race_ethnicity`.
+Arrow columns: `id` (uint32), `inc` (uint32, HHINCOME), `wage_inc` (uint32), `weight` (float32, ASECWTH), `state` (uint8, STATEFIP), `year` (uint8, 0=survey year 2023/income year 2022, 1=2024/2023, 2=2025/2024), then uint8 derived vars: `age_bucket`, `sex`, `marst`, `educ`, `region`, `metro`, `kids`, `youngest_child`, `work_status`, `hours_category`, `weeks_worked`, `multi_job_proxy`, `income_type`, `topcoded`, `race_ethnicity`, `has_roommate`.
 
 Key derivations:
 - `work_status`: hierarchy — FT wage (0) > FT self-emp (1) > FT part-year (2) > part-time (3) > unemployed (4) > retired (5) > not working (6)
 - `multi_job_proxy`: derived from `UHRSWORKT − UHRSWORK1` (hours differential), NOT from `MULTJOB`/`NUMJOBS` — those are unreliable. NIU codes (≥997) excluded.
 - `income_type`: wage_share = (INCWAGE+INCBUS)/HHINCOME; ≥0.75=wages, 0.25–0.74=mixed, <0.25=passive, zero/neg=3
 - `marst`: cohabiting (1) detected via RELATE=1114/1116/1117 in household roster, overrides married (0)
+- `has_roommate`: 1 if any household member has RELATE=1113 (roomer/boarder) or 1115 (housemate/roommate)
 
 ## Precomputed stats keys
 

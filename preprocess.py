@@ -161,10 +161,23 @@ def detect_cohabiting(df):
 # ---------------------------------------------------------------------------
 # Collapse to household (keep PERNUM==1 row per SERIAL)
 # ---------------------------------------------------------------------------
-def collapse_to_household(df, cohabiting_serials):
+def detect_roommates(df):
+    step(2, 9, "Roommate detection…")
+    if "RELATE" not in df.columns:
+        print("  WARNING: RELATE not found — skipping")
+        return set()
+    # 1113=roomer/boarder, 1115=housemate/roommate
+    roommate_mask = df["RELATE"].isin([1113, 1115])
+    roommate_hh = set(df.loc[roommate_mask, "SERIAL"].unique())
+    print(f"  {len(roommate_hh):,} households flagged as having roommates")
+    return roommate_hh
+
+
+def collapse_to_household(df, cohabiting_serials, roommate_serials):
     df = df.sort_values(["SERIAL", "PERNUM"])
     hh = df.groupby("SERIAL", sort=False).first().reset_index()
     hh["_cohabiting"] = hh["SERIAL"].isin(cohabiting_serials)
+    hh["_has_roommate"] = hh["SERIAL"].isin(roommate_serials)
     print(f"  {len(hh):,} households after collapse")
     return hh
 
@@ -331,6 +344,9 @@ def derive_variables(hh):
     housing[spmmort == 2] = 1  # owner, free & clear
     housing[spmmort == 3] = 2  # renter
     out["housing"] = housing.values.astype("uint8")
+
+    # has_roommate (any household member with RELATE 1113=roomer/boarder or 1115=housemate)
+    out["has_roommate"] = hh.get("_has_roommate", pd.Series(0, index=hh.index)).astype("uint8")
 
     return out, hh  # return hh so we can attach rep weights later
 
@@ -645,6 +661,7 @@ def write_codebook(derived, output_dir):
             "hours_category":{"0":"Full-time","1":"Part-time","2":"Marginal","3":"N/A"},
             "race_ethnicity":{"0":"White non-Hisp","1":"Black non-Hisp","2":"Hispanic","3":"Asian non-Hisp","4":"Other/Multiracial"},
             "metro":         {"0":"Non-metro","1":"Metro"},
+            "has_roommate":  {"0":"No roommates","1":"Has roommate"},
             "multi_job_proxy":{"0":"No secondary work","1":"1–14 hrs secondary","2":"15–34 hrs secondary","3":"35+ hrs secondary"},
             "housing":       {"0":"Owner w/ mortgage","1":"Owner, free & clear","2":"Renter","3":"N/A"},
         },
@@ -679,11 +696,12 @@ def main():
     step(1, 9, "Loading CPS fixed-width file…")
     df = load_fixed_width(args.input, args.ddi, wanted=WANTED)
 
-    # 2. Cohabiting detection
+    # 2. Cohabiting + roommate detection
     cohabiting = detect_cohabiting(df)
+    roommates  = detect_roommates(df)
 
     # 3. Collapse to household
-    hh = collapse_to_household(df, cohabiting)
+    hh = collapse_to_household(df, cohabiting, roommates)
     del df  # free memory
 
     # 4. Derive
