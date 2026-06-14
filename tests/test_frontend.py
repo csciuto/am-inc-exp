@@ -256,9 +256,10 @@ class TestColorMode:
     def test_breakdown_expand_toggle(self, page: Page):
         page.locator(".stats-tab-btn[data-stats-tab='detail']").click()
         btn = page.locator("#btn-expand-breakdown")
-        expect(btn).to_contain_text("expand")
+        expect(btn).to_contain_text("By group")
+        expect(btn).to_contain_text("▾")
         btn.click()
-        expect(btn).to_contain_text("collapse")
+        expect(btn).to_contain_text("▴")
 
 
 # ---------------------------------------------------------------------------
@@ -440,3 +441,105 @@ class TestBrushRange:
         page.wait_for_selector("#loading", state="hidden", timeout=LOAD_TIMEOUT)
         expect(page.locator("#brush-range-info")).to_be_visible()
         expect(page.locator("#brush-range-info")).to_contain_text("$50,000")
+
+    def test_range_expand_button_hidden_without_range(self, page: Page):
+        page.locator(".stats-tab-btn[data-stats-tab='range']").click()
+        expect(page.locator("#btn-expand-range")).to_be_hidden()
+
+    def test_range_expand_button_visible_after_brush(self, page: Page):
+        self._drag_brush(page, 0.2, 0.6)
+        expect(page.locator("#btn-expand-range")).to_be_visible()
+
+    def test_range_expand_shows_breakdown(self, page: Page):
+        self._drag_brush(page, 0.2, 0.6)
+        expect(page.locator("#range-breakdown")).to_be_hidden()
+        page.locator("#btn-expand-range").click()
+        expect(page.locator("#range-breakdown")).to_be_visible()
+        expect(page.locator("#range-breakdown")).to_contain_text("Median")
+
+    def test_range_expand_button_toggles_label(self, page: Page):
+        self._drag_brush(page, 0.2, 0.6)
+        btn = page.locator("#btn-expand-range")
+        expect(btn).to_contain_text("▾")
+        btn.click()
+        expect(btn).to_contain_text("▴")
+
+
+# ---------------------------------------------------------------------------
+# View toggle (Dots / Bars / 100%)
+# ---------------------------------------------------------------------------
+
+class TestViewToggle:
+    def test_three_view_buttons_exist(self, page: Page):
+        assert page.locator(".view-btn").count() == 3
+
+    def test_dots_button_active_by_default(self, page: Page):
+        expect(page.locator(".view-btn[data-view='dots']")).to_have_class(re.compile(r"\bactive\b"))
+
+    def test_bars_view_renders_rects(self, page: Page):
+        page.locator(".view-btn[data-view='bars']").click()
+        page.wait_for_timeout(300)
+        assert page.locator("#chart-svg rect").count() > 0
+        assert page.locator("#chart-svg circle").count() == 0
+
+    def test_pct_view_renders_rects(self, page: Page):
+        page.locator(".view-btn[data-view='pct']").click()
+        page.wait_for_timeout(300)
+        assert page.locator("#chart-svg rect").count() > 0
+
+    def test_switching_back_to_dots_renders_circles(self, page: Page):
+        # Regression: switching bars→dots used updateDotOpacity() on empty SVG
+        page.locator(".view-btn[data-view='bars']").click()
+        page.wait_for_timeout(300)
+        page.locator(".view-btn[data-view='dots']").click()
+        page.wait_for_timeout(300)
+        assert page.locator("#chart-svg circle").count() > 100
+
+    def test_pct_then_back_to_dots(self, page: Page):
+        page.locator(".view-btn[data-view='pct']").click()
+        page.wait_for_timeout(300)
+        page.locator(".view-btn[data-view='dots']").click()
+        page.wait_for_timeout(300)
+        assert page.locator("#chart-svg circle").count() > 100
+
+    def test_color_mode_change_in_bars_rerenders(self, page: Page):
+        page.locator(".view-btn[data-view='bars']").click()
+        page.wait_for_timeout(300)
+        rect_count_before = page.locator("#chart-svg rect").count()
+        page.locator(".cm-btn[data-mode='work_status']").click()
+        page.wait_for_timeout(300)
+        rect_count_after = page.locator("#chart-svg rect").count()
+        assert rect_count_after > 0, "Bars disappeared after color mode change"
+
+    def test_bars_view_in_url(self, page: Page):
+        page.locator(".view-btn[data-view='bars']").click()
+        page.wait_for_timeout(300)
+        assert "v=bars" in page.url
+
+    def test_pct_view_in_url(self, page: Page):
+        page.locator(".view-btn[data-view='pct']").click()
+        page.wait_for_timeout(300)
+        assert "v=pct" in page.url
+
+    def test_dots_view_not_in_url(self, page: Page):
+        # 'dots' is default — should not clutter URL
+        assert "v=" not in page.url
+
+    def test_view_restored_from_url(self, page: Page, static_server: str):
+        page.goto(static_server + "#v=bars")
+        page.wait_for_selector("#loading", state="hidden", timeout=LOAD_TIMEOUT)
+        expect(page.locator(".view-btn[data-view='bars']")).to_have_class(re.compile(r"\bactive\b"))
+        page.wait_for_timeout(300)
+        assert page.locator("#chart-svg rect").count() > 0
+
+    def test_bars_yaxis_shows_millions(self, page: Page):
+        page.locator(".view-btn[data-view='bars']").click()
+        page.wait_for_timeout(300)
+        text = page.locator("#chart-svg").text_content()
+        assert "M" in text
+
+    def test_pct_yaxis_shows_percent(self, page: Page):
+        page.locator(".view-btn[data-view='pct']").click()
+        page.wait_for_timeout(300)
+        text = page.locator("#chart-svg").text_content()
+        assert "%" in text
