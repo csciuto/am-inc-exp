@@ -1099,6 +1099,14 @@ function renderChart() {
   )
   .select('.domain').remove();
 
+  // Y-axis label
+  svgEl.append('text')
+    .attr('transform', `translate(${marginL - 44},${marginT + chartH / 2}) rotate(-90)`)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#4a5580')
+    .attr('font-size', isMobile() ? 9 : 10)
+    .text('y: display jitter');
+
   // Dots
   svgEl.append('g')
     .selectAll('circle')
