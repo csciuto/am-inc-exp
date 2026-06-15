@@ -404,6 +404,7 @@ ARROW_SCHEMA = pa.schema([
     ("topcoded",       pa.uint8()),
     ("race_ethnicity", pa.uint8()),
     ("housing",        pa.uint8()),
+    ("has_roommate",   pa.uint8()),
 ])
 
 
