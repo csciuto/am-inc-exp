@@ -156,6 +156,97 @@
   .legend-item.active { background: var(--chip-active); outline: 1px solid var(--accent); }
   .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .legend-topcode { font-size: 13px; color: var(--warn); line-height: 10px; }
+
+  /* ================================================================
+     Mobile layout  (≤ 767px)
+     ================================================================ */
+  @media (max-width: 767px) {
+    /* Sidebar becomes a slide-up full-screen drawer */
+    #sidebar {
+      position: fixed; inset: 0; z-index: 200;
+      width: 100%; min-width: 0; border-right: none;
+      background: var(--bg);
+      transform: translateY(100%);
+      transition: transform 0.28s cubic-bezier(.4,0,.2,1);
+      overflow-y: auto;
+      display: flex; flex-direction: column;
+    }
+    #sidebar.open { transform: none; }
+
+    #sidebar-backdrop {
+      position: fixed; inset: 0; z-index: 199;
+      background: rgba(0,0,0,0.5);
+      display: none;
+    }
+    #sidebar-backdrop.open { display: block; }
+
+    #sidebar-mobile-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 16px 10px; border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #sidebar-mobile-header span { font-size: 15px; font-weight: 600; }
+    #btn-close-sidebar {
+      background: none; border: 1px solid var(--border); border-radius: 4px;
+      color: var(--text); font-size: 13px; padding: 6px 16px; cursor: pointer;
+    }
+
+    #btn-filters { display: flex; }
+
+    /* Chart area fills everything except header */
+    #chart-area { flex: 1; min-height: 0; }
+
+    /* Mini stats strip — always visible above chart */
+    #mobile-stats {
+      display: flex; flex-wrap: wrap; gap: 12px 20px;
+      padding: 7px 12px; flex-shrink: 0;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+    }
+    .mstat { display: flex; flex-direction: column; }
+    .mstat-label { font-size: 10px; color: var(--text-dimmer); text-transform: uppercase; letter-spacing: 0.05em; }
+    .mstat-val   { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+    /* Header compact */
+    #header { padding: 10px 14px 8px; gap: 10px; }
+    #header .sub { display: none; }
+
+    /* Toolbar */
+    #toolbar { padding: 8px 10px; gap: 6px; flex-wrap: wrap; }
+
+    /* Touch-sized tap targets */
+    .f-btn    { padding: 8px 12px; min-height: 36px; font-size: 12px; }
+    .tab-btn  { padding: 9px 8px;  min-height: 36px; }
+    .cm-btn   { padding: 9px 10px; min-height: 36px; }
+    .view-btn { padding: 7px 12px; }
+    #btn-brush, #btn-clear, #btn-filters { padding: 7px 12px; min-height: 36px; font-size: 11px; }
+    .stats-tab-btn  { padding: 9px 6px; min-height: 36px; }
+    .state-check-label { padding: 7px 4px; min-height: 36px; }
+    .expand-bar { padding: 9px 0; }
+    .legend-item { padding: 5px 6px; margin: -5px -6px; }
+    .chip { padding: 5px 10px; font-size: 12px; }
+
+    /* Tooltip pinned to top-centre on mobile */
+    #tooltip {
+      top: 56px !important; left: 50% !important;
+      transform: translateX(-50%) !important;
+      max-width: min(300px, 92vw);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.45);
+    }
+
+    #footer { display: none; }
+    #sidebar-body { flex: 1; }
+    #stats-detail { max-height: 200px; }
+    #stats-range  { max-height: 300px; }
+    #state-list   { max-height: 260px; }
+  }
+
+  @media (min-width: 768px) {
+    #sidebar-mobile-header { display: none; }
+    #btn-close-sidebar     { display: none; }
+    #btn-filters           { display: none; }
+    #mobile-stats          { display: none; }
+    #sidebar-backdrop      { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -172,8 +263,12 @@
 
 <div id="main">
 
-  <!-- sidebar -->
+  <!-- sidebar (desktop: left column; mobile: slide-up drawer) -->
   <div id="sidebar">
+    <div id="sidebar-mobile-header">
+      <span>Stats &amp; Filters</span>
+      <button id="btn-close-sidebar">Done</button>
+    </div>
     <div id="sidebar-stats">
       <div id="stats-tab-bar">
         <button class="stats-tab-btn active" data-stats-tab="summary">Stats</button>
@@ -328,14 +423,17 @@
         <button class="view-btn" data-view="bars">Bars</button>
         <button class="view-btn" data-view="pct">100%</button>
       </div>
+      <button id="btn-filters">Filters</button>
       <button id="btn-clear">Clear all</button>
     </div>
     <div id="legend"></div>
+    <div id="mobile-stats"></div>
     <div id="chart-wrap">
       <svg id="chart-svg"></svg>
     </div>
   </div>
 </div>
+<div id="sidebar-backdrop"></div>
 
 <div id="tooltip"></div>
 
@@ -377,6 +475,8 @@ let brushLayer = null;   // D3 selection of brush <g>
 let d3brush = null;      // D3 brush object
 let brushModeActive = false;
 let viewMode = 'dots';   // 'dots' | 'bars'
+
+function isMobile() { return window.innerWidth < 768; }
 
 // ============================================================
 // Color palettes
@@ -890,10 +990,26 @@ window.addEventListener('popstate', () => { applyUrl(); render(); });
 
 // ============================================================
 // Dot chart
+function renderMobileStats(stats) {
+  const el = document.getElementById('mobile-stats');
+  if (!el) return;
+  if (!stats || stats.rel === 0) {
+    el.innerHTML = '<span style="color:var(--text-dim);font-size:11px">Insufficient data</span>';
+    return;
+  }
+  el.innerHTML = `
+    <div class="mstat"><span class="mstat-label">Median</span><span class="mstat-val">${fmt$(stats.med)}</span></div>
+    <div class="mstat"><span class="mstat-label">Mean</span><span class="mstat-val">${fmt$(stats.mean)}</span></div>
+    <div class="mstat"><span class="mstat-label">HH</span><span class="mstat-val">~${(stats.n_rep/1e6).toFixed(1)}M</span></div>
+    <div class="mstat"><span class="mstat-label">Records</span><span class="mstat-val">${stats.n.toLocaleString()}</span></div>
+  `;
+}
+
 function render() {
   visibleRows = computeVisibleRows();
   const stats = getStats();
   renderStats(stats);
+  renderMobileStats(stats);
   const scope = computeScope();
   if (viewMode === 'bars' || viewMode === 'pct') {
     renderStackedBars();
@@ -924,7 +1040,7 @@ function renderChart() {
 
   const cols = currentCols();
   const allRowIndices = Array.from({length: cols.inc.length}, (_, i) => i);
-  const dotRows = subsample(allRowIndices, 3000);
+  const dotRows = subsample(allRowIndices, isMobile() ? 800 : 3000);
   const hasFilters = selectedFips.size > 0 || Object.values(filters).some(s => s && s.size > 0);
 
   d3.select(svg).selectAll('*').remove();
@@ -935,7 +1051,9 @@ function renderChart() {
     .clamp(true);
 
   const medWeight = d3.median(dotRows, i => cols.weight[i]) || 1;
-  const rScale = w => Math.max(2, Math.min(8, (w / medWeight) * 4));
+  const rScale = isMobile()
+    ? w => Math.max(3, Math.min(10, (w / medWeight) * 5))
+    : w => Math.max(2, Math.min(8,  (w / medWeight) * 4));
 
   const BIN_PX = 8;
   const binScale = d3.scaleLog().domain([1000, 2500000]).range([0, chartW / BIN_PX]);
@@ -962,12 +1080,15 @@ function renderChart() {
   // X axis
   const gAxis = svgEl.append('g')
     .attr('transform', `translate(${marginL},${marginT + chartH})`);
+  const dotTickValues = isMobile()
+    ? [10000, 50000, 100000, 500000, 2000000]
+    : [5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000];
   gAxis.call(
     d3.axisBottom(xScale)
-      .tickValues([5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000])
+      .tickValues(dotTickValues)
       .tickFormat(d => d >= 1e6 ? `$${d/1e6}M` : d >= 1e3 ? `$${d/1e3}k` : `$${d}`)
   )
-  .selectAll('text').style('fill', '#8892b0').style('font-size', '11px');
+  .selectAll('text').style('fill', '#8892b0').style('font-size', isMobile() ? '10px' : '11px');
   gAxis.selectAll('line,path').style('stroke', '#2e3350');
 
   // Gridlines
@@ -992,8 +1113,9 @@ function renderChart() {
       .attr('opacity', d => isDimmed(d.i, cols, hasFilters) ? 0.12 : 0.75)
       .attr('pointer-events', d => isDimmed(d.i, cols, hasFilters) ? 'none' : 'all')
       .on('mouseover', (event, d) => showTooltip(event, d.i))
-      .on('mousemove', (event) => moveTooltip(event))
-      .on('mouseout', hideTooltip);
+      .on('mousemove', moveTooltip)
+      .on('mouseout', hideTooltip)
+      .on('touchstart', (event, d) => { event.preventDefault(); showTooltip(event, d.i); }, {passive: false});
 
   // Topcode ⊕
   svgEl.append('g')
@@ -1077,7 +1199,7 @@ function renderStackedBars() {
     .range([0, chartW])
     .clamp(true);
 
-  const NUM_BINS = 60;
+  const NUM_BINS = isMobile() ? 40 : 60;
   const binEdges = d3.range(NUM_BINS + 1).map(k =>
     xScale.invert(k * chartW / NUM_BINS)
   );
@@ -1110,8 +1232,11 @@ function renderStackedBars() {
   const svgEl = d3.select(svg);
 
   // X axis
+  const barTickValues = isMobile()
+    ? [10000, 50000, 100000, 500000, 2000000]
+    : [5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000, 2000000];
   const xAxis = d3.axisBottom(xScale)
-    .tickValues([5000,10000,25000,50000,100000,250000,500000,1000000,2000000])
+    .tickValues(barTickValues)
     .tickFormat(d => d >= 1000000 ? `$${d/1000000}M` : `$${d/1000}k`);
 
   svgEl.append('g')
@@ -1120,7 +1245,7 @@ function renderStackedBars() {
     .call(xAxis)
     .call(g => g.select('.domain').attr('stroke', 'var(--border)'))
     .call(g => g.selectAll('.tick line').attr('stroke', 'var(--border)'))
-    .call(g => g.selectAll('.tick text').attr('fill', 'var(--text-dim)').attr('font-size', 10));
+    .call(g => g.selectAll('.tick text').attr('fill', 'var(--text-dim)').attr('font-size', isMobile() ? 9 : 10));
 
   // Y axis
   const yAxis = isPct
@@ -1183,7 +1308,17 @@ function renderStackedBars() {
           moveTooltip(event);
         })
         .on('mousemove', moveTooltip)
-        .on('mouseout', hideTooltip);
+        .on('mouseout', hideTooltip)
+        .on('touchstart', (event) => {
+          event.preventDefault();
+          const tt = document.getElementById('tooltip');
+          tt.innerHTML = `
+            <div class="tt-income">${loInc} – ${hiInc}</div>
+            <div class="tt-dim">${catLabel}</div>
+            <div class="tt-dim">${(segW / 1e6).toFixed(2)}M households · ${pct}% of band</div>
+          `;
+          tt.style.display = 'block';
+        }, {passive: false});
     }
   });
 
@@ -1386,6 +1521,7 @@ function showTooltip(event, i) {
 }
 
 function moveTooltip(event) {
+  if (isMobile()) return; // CSS pins tooltip to top-centre on mobile
   const tt = document.getElementById('tooltip');
   const x = event.clientX + 14;
   const y = event.clientY - 10;
@@ -1687,6 +1823,29 @@ document.querySelectorAll('.view-btn').forEach(btn => {
     render();
   });
 });
+
+// ============================================================
+// Mobile sidebar drawer
+// ============================================================
+function openSidebar() {
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebar-backdrop').classList.add('open');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-backdrop').classList.remove('open');
+}
+document.getElementById('btn-filters').addEventListener('click', openSidebar);
+document.getElementById('btn-close-sidebar').addEventListener('click', closeSidebar);
+document.getElementById('sidebar-backdrop').addEventListener('click', closeSidebar);
+
+// Dismiss tooltip on tap of chart background
+document.getElementById('chart-wrap').addEventListener('touchstart', (e) => {
+  const tag = e.target.tagName.toLowerCase();
+  if (tag === 'svg' || tag === 'path' || tag === 'line' || tag === 'text' || tag === 'g') {
+    hideTooltip();
+  }
+}, { passive: true });
 
 // ============================================================
 // Resize

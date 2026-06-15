@@ -604,3 +604,100 @@ class TestBarTooltip:
         page.locator("#chart-svg rect[style*='cursor']").first.hover(force=True)
         expect(page.locator("#tooltip")).to_be_visible()
         expect(page.locator("#tooltip")).to_contain_text("% of band")
+
+
+# ---------------------------------------------------------------------------
+# Mobile layout  (iPhone 12 emulation, 390×844 viewport)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def mobile_page(browser, static_server: str):
+    ctx = browser.new_context(
+        viewport={"width": 390, "height": 844},
+        device_scale_factor=3,
+        is_mobile=True,
+        has_touch=True,
+    )
+    pg = ctx.new_page()
+    pg.set_default_timeout(45_000)
+    pg.goto(static_server)
+    pg.wait_for_selector("#loading", state="hidden", timeout=45_000)
+    yield pg
+    ctx.close()
+
+
+class TestMobile:
+    def test_sidebar_hidden_by_default(self, mobile_page: Page):
+        # Sidebar is off-screen (drawer closed) — not visually visible
+        sidebar = mobile_page.locator("#sidebar")
+        box = sidebar.bounding_box()
+        assert box is None or box["y"] >= 844, "Sidebar should be off-screen when drawer is closed"
+
+    def test_filters_button_visible(self, mobile_page: Page):
+        expect(mobile_page.locator("#btn-filters")).to_be_visible()
+
+    def test_filters_button_opens_drawer(self, mobile_page: Page):
+        mobile_page.locator("#btn-filters").tap()
+        mobile_page.wait_for_timeout(400)
+        expect(mobile_page.locator("#sidebar")).to_be_visible()
+
+    def test_close_button_closes_drawer(self, mobile_page: Page):
+        mobile_page.locator("#btn-filters").tap()
+        mobile_page.wait_for_timeout(400)
+        mobile_page.locator("#btn-close-sidebar").tap()
+        mobile_page.wait_for_timeout(400)
+        sidebar = mobile_page.locator("#sidebar")
+        box = sidebar.bounding_box()
+        assert box is None or box["y"] >= 844
+
+    def test_mobile_stats_strip_visible(self, mobile_page: Page):
+        expect(mobile_page.locator("#mobile-stats")).to_be_visible()
+
+    def test_mobile_stats_shows_median(self, mobile_page: Page):
+        expect(mobile_page.locator("#mobile-stats")).to_contain_text("Median")
+        expect(mobile_page.locator("#mobile-stats")).to_contain_text("$")
+
+    def test_mobile_stats_shows_household_count(self, mobile_page: Page):
+        expect(mobile_page.locator("#mobile-stats")).to_contain_text("HH")
+
+    def test_dots_render_on_mobile(self, mobile_page: Page):
+        circles = mobile_page.locator("#chart-svg circle")
+        assert circles.count() > 0
+
+    def test_fewer_dots_on_mobile(self, mobile_page: Page):
+        mobile_page.wait_for_timeout(300)
+        count = mobile_page.locator("#chart-svg circle").count()
+        assert count <= 800, f"Expected ≤800 dots on mobile, got {count}"
+
+    def test_dot_tap_shows_tooltip(self, mobile_page: Page):
+        mobile_page.locator("#chart-svg circle").first.tap(force=True)
+        expect(mobile_page.locator("#tooltip")).to_be_visible()
+
+    def test_dot_tap_tooltip_contains_income(self, mobile_page: Page):
+        mobile_page.locator("#chart-svg circle").first.tap(force=True)
+        expect(mobile_page.locator("#tooltip .tt-income")).to_contain_text("$")
+
+    def test_filter_works_on_mobile(self, mobile_page: Page):
+        mobile_page.locator("#btn-filters").tap()
+        mobile_page.wait_for_timeout(300)
+        mobile_page.locator(".tab-btn[data-tab='demo']").tap()
+        mobile_page.wait_for_timeout(200)
+        mobile_page.locator("#f-sex .f-btn").first.tap()
+        mobile_page.wait_for_timeout(400)
+        mobile_page.locator("#btn-close-sidebar").tap()
+        mobile_page.wait_for_timeout(300)
+        expect(mobile_page.locator("#active-chips .chip")).to_have_count(1)
+
+    def test_view_toggle_works_on_mobile(self, mobile_page: Page):
+        mobile_page.locator(".view-btn[data-view='bars']").tap()
+        mobile_page.wait_for_timeout(300)
+        assert mobile_page.locator("#chart-svg rect").count() > 0
+
+    def test_bar_tap_shows_tooltip(self, mobile_page: Page):
+        mobile_page.locator(".view-btn[data-view='bars']").tap()
+        mobile_page.wait_for_timeout(300)
+        mobile_page.locator("#chart-svg rect[style*='cursor']").first.tap(force=True)
+        expect(mobile_page.locator("#tooltip")).to_be_visible()
+
+    def test_footer_hidden_on_mobile(self, mobile_page: Page):
+        expect(mobile_page.locator("#footer")).to_be_hidden()
