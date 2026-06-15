@@ -87,7 +87,7 @@ By group breakdown: computed from full `visibleRows` (not the dot subsample), we
 
 Color modes: income_type, work_status, age_bucket, sex, educ, marst, race_ethnicity, housing, kids, metro, multi_job_proxy, state, year. Palettes in `PALETTES` object. Note: `sex` palette is sparse (index 0 = null, values 1=Male/2=Female) because CPS sex codes are 1/2; `renderLegend` skips null entries.
 
-Sidebar tabs: Group (color mode picker), Demo (age/sex/marital/educ/race/kids), Geo (metro/states), Work (work_status/income_type/housing/secondary hours), Survey (survey year filter).
+Sidebar tabs: Group (color mode picker), Demo (age/sex/marital/has_roommate/educ/race/kids), Geo (metro/states), Work (work_status/income_type/hh_share/housing/secondary hours), Survey (survey year filter).
 
 ## Topcode values
 

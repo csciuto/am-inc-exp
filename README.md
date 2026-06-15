@@ -61,8 +61,8 @@ The page loads `codebook.json`, `stats_precomputed.json`, and `national.arrow`
 ### Using the explorer
 
 - **Filter** with the left sidebar tabs — *Demo* (age, sex, marital status,
-  roommates, householder income share, education, race/ethnicity, kids), *Geo*
-  (metro, individual states), *Work* (work status, income type, housing tenure,
+  roommates, education, race/ethnicity, kids), *Geo* (metro, individual states),
+  *Work* (work status, income type, householder income share, housing tenure,
   secondary hours), and *Survey* (year). Clicking a value filters to it; clicking
   again clears it; clicking other values in the same group adds them. Active
   filters appear as removable chips above the chart; **Clear all** resets.
