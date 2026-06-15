@@ -147,37 +147,41 @@ WANTED = {
 # Cohabiting detection
 # ---------------------------------------------------------------------------
 def detect_cohabiting(df):
-    step(2, 9, "Cohabiting partner detection…")
+    step(2, 9, "Cohabiting + roommate detection…")
     if "RELATE" not in df.columns:
         print("  WARNING: RELATE not found — skipping")
-        return set()
+        return set(), set()
     # 1114=unmarried partner (legacy), 1116=opposite-sex, 1117=same-sex (ASEC 2023+)
-    partner_mask = df["RELATE"].isin([1113, 1114, 1116, 1117])
-    partner_hh = set(df.loc[partner_mask, "SERIAL"].unique())
-    print(f"  {len(partner_hh):,} households flagged as cohabiting")
-    return partner_hh
-
-
-# ---------------------------------------------------------------------------
-# Collapse to household (keep PERNUM==1 row per SERIAL)
-# ---------------------------------------------------------------------------
-def detect_roommates(df):
-    step(2, 9, "Roommate detection…")
-    if "RELATE" not in df.columns:
-        print("  WARNING: RELATE not found — skipping")
-        return set()
+    partner_mask = df["RELATE"].isin([1114, 1116, 1117])
+    partner_hh = set(zip(df.loc[partner_mask, "YEAR"], df.loc[partner_mask, "SERIAL"]))
     # 1113=roomer/boarder, 1115=housemate/roommate
     roommate_mask = df["RELATE"].isin([1113, 1115])
-    roommate_hh = set(df.loc[roommate_mask, "SERIAL"].unique())
+    roommate_hh = set(zip(df.loc[roommate_mask, "YEAR"], df.loc[roommate_mask, "SERIAL"]))
+    print(f"  {len(partner_hh):,} households flagged as cohabiting")
     print(f"  {len(roommate_hh):,} households flagged as having roommates")
-    return roommate_hh
+    return partner_hh, roommate_hh
 
 
-def collapse_to_household(df, cohabiting_serials, roommate_serials):
-    df = df.sort_values(["SERIAL", "PERNUM"])
-    hh = df.groupby("SERIAL", sort=False).first().reset_index()
-    hh["_cohabiting"] = hh["SERIAL"].isin(cohabiting_serials)
-    hh["_has_roommate"] = hh["SERIAL"].isin(roommate_serials)
+# ---------------------------------------------------------------------------
+# Collapse to household (keep PERNUM==1 row per YEAR+SERIAL)
+# ---------------------------------------------------------------------------
+def collapse_to_household(df, cohabiting_keys, roommate_keys):
+    df = df.sort_values(["YEAR", "SERIAL", "PERNUM"])
+
+    # Sum wage+business income across all household members before collapse
+    incwage = pd.to_numeric(df.get("INCWAGE", 0), errors="coerce").fillna(0)
+    incbus  = pd.to_numeric(df.get("INCBUS",  0), errors="coerce").fillna(0)
+    hh_wage = (incwage + incbus).clip(lower=0).groupby(
+        [df["YEAR"], df["SERIAL"]]
+    ).transform("sum")
+    df = df.copy()
+    df["_hh_wage_sum"] = hh_wage
+
+    hh = df.groupby(["YEAR", "SERIAL"], sort=False).first().reset_index()
+
+    yr_ser = list(zip(hh["YEAR"], hh["SERIAL"]))
+    hh["_cohabiting"]   = [k in cohabiting_keys  for k in yr_ser]
+    hh["_has_roommate"] = [k in roommate_keys     for k in yr_ser]
     print(f"  {len(hh):,} households after collapse")
     return hh
 
@@ -195,8 +199,9 @@ def derive_variables(hh):
 
     # income
     hhincome   = pd.to_numeric(hh["HHINCOME"],  errors="coerce").fillna(0)
-    incwage    = pd.to_numeric(hh["INCWAGE"],    errors="coerce").fillna(0)
-    incbus     = pd.to_numeric(hh.get("INCBUS",   pd.Series(0, index=hh.index)), errors="coerce").fillna(0)
+    # _hh_wage_sum = sum of INCWAGE+INCBUS across all household members (set in collapse)
+    incwage    = pd.to_numeric(hh.get("_hh_wage_sum", hh.get("INCWAGE", pd.Series(0, index=hh.index))), errors="coerce").fillna(0)
+    incbus     = pd.Series(0, index=hh.index)  # already summed into incwage via _hh_wage_sum
     incss      = pd.to_numeric(hh.get("INCSS",    pd.Series(0, index=hh.index)), errors="coerce").fillna(0)
     incdivid   = pd.to_numeric(hh.get("INCDIVID", pd.Series(0, index=hh.index)), errors="coerce").fillna(0)
     incrent    = pd.to_numeric(hh.get("INCRENT",  pd.Series(0, index=hh.index)), errors="coerce").fillna(0)
@@ -697,8 +702,7 @@ def main():
     df = load_fixed_width(args.input, args.ddi, wanted=WANTED)
 
     # 2. Cohabiting + roommate detection
-    cohabiting = detect_cohabiting(df)
-    roommates  = detect_roommates(df)
+    cohabiting, roommates = detect_cohabiting(df)
 
     # 3. Collapse to household
     hh = collapse_to_household(df, cohabiting, roommates)
