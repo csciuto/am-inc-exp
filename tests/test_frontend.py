@@ -28,8 +28,9 @@ class TestPageLoad:
     def test_header_year_range(self, page: Page):
         expect(page.locator(".sub")).to_contain_text("CPS ASEC 2023–2025")
 
-    def test_footer_year_range(self, page: Page):
-        expect(page.locator("#footer")).to_contain_text("2023–2025")
+    def test_about_panel_year_range(self, page: Page):
+        page.click("#btn-about")
+        expect(page.locator("#chart-about")).to_contain_text("2023–2025")
 
     def test_dots_rendered(self, page: Page):
         assert page.locator("#chart-svg circle").count() > 100

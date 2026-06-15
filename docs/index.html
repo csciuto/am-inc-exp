@@ -146,8 +146,17 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ---- footer ---- */
-  #footer { padding: 10px 20px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dimmer); line-height: 1.5; }
+  #footer { padding: 8px 20px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dimmer); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   #footer a { color: var(--text-dim); }
+
+  /* ---- chart about panel ---- */
+  #chart-about-wrap { padding: 0 16px 6px; }
+  #btn-about { background: none; border: none; color: var(--text-dimmer); font-size: 11px; cursor: pointer; padding: 2px 4px; border-radius: 3px; }
+  #btn-about:hover { color: var(--text-dim); background: var(--surface2); }
+  #chart-about { display: none; margin-top: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; font-size: 11px; color: var(--text-dim); line-height: 1.7; }
+  #chart-about dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; }
+  #chart-about dt { color: var(--text); font-weight: 600; white-space: nowrap; }
+  #chart-about dd { margin: 0; }
 
   /* ---- legend ---- */
   #legend { padding: 0 16px 8px; display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; }
@@ -427,6 +436,18 @@
       <button id="btn-clear">Clear all</button>
     </div>
     <div id="legend"></div>
+    <div id="chart-about-wrap">
+      <button id="btn-about">ⓘ About this chart</button>
+      <div id="chart-about">
+        <dl>
+          <dt>X axis</dt><dd>Household income on a log scale. Drag to select a range.</dd>
+          <dt>Y axis</dt><dd>Frequency — taller clusters mean more households near that income. Dots are also spread apart vertically to reduce overlap, so the exact y position of each dot isn't meaningful.</dd>
+          <dt>Dot size</dt><dd>Proportional to the household's sampling weight. A larger dot represents more US households.</dd>
+          <dt>Colors</dt><dd>Set by the <em>Group</em> tab. Click a legend swatch to filter by that category. Topcoded incomes (⊕) are censored at the survey year's reported maximum.</dd>
+          <dt>Data</dt><dd>IPUMS CPS ASEC survey years 2023–2025 (income years 2022–2024), pooled. All statistics are weighted. Small samples are flagged — see the reliability indicator.</dd>
+        </dl>
+      </div>
+    </div>
     <div id="mobile-stats"></div>
     <div id="chart-wrap">
       <svg id="chart-svg"></svg>
@@ -438,12 +459,9 @@
 <div id="tooltip"></div>
 
 <div id="footer">
-  Data: IPUMS CPS ASEC survey years 2023–2025, pooled (income years 2022–2024). Each dot represents one survey household weighted by sampling weight.
-  Statistics are weighted. Topcoded incomes (⊕) are censored at the survey year's maximum reported value.
-  Small samples produce unreliable estimates — see reliability indicator.
-  &nbsp;<a href="https://cps.ipums.org" target="_blank">IPUMS CPS</a>
-  &nbsp;<a href="https://github.com/csciuto/am-inc-exp" target="_blank">GitHub</a>
-  &nbsp;<span id="version-stamp" style="color:var(--text-dimmer);font-size:10px"></span>
+  <a href="https://cps.ipums.org" target="_blank">IPUMS CPS</a>
+  <a href="https://github.com/csciuto/am-inc-exp" target="_blank">GitHub</a>
+  <span id="version-stamp" style="color:var(--text-dimmer);font-size:10px"></span>
 </div>
 
 <!-- Arrow JS from CDN -->
@@ -1099,30 +1117,15 @@ function renderChart() {
   )
   .select('.domain').remove();
 
-  // Y-axis info icon
+  // Y-axis frequency label
   svgEl.append('text')
-    .attr('x', 14)
-    .attr('y', marginT + chartH / 2)
+    .attr('transform', `translate(10,${marginT + chartH / 2}) rotate(-90)`)
     .attr('text-anchor', 'middle')
     .attr('dominant-baseline', 'central')
     .attr('fill', '#8892b0')
-    .attr('font-size', 14)
-    .style('cursor', 'default')
-    .text('ⓘ')
-    .on('mouseover', (event) => {
-      const tt = document.getElementById('tooltip');
-      tt.innerHTML = `<div class="tt-dim">Dots are spread vertically to reduce overlap — y position carries no meaning. Only the x-axis (income) encodes data.</div>`;
-      tt.style.display = 'block';
-      moveTooltip(event);
-    })
-    .on('mousemove', moveTooltip)
-    .on('mouseout', hideTooltip)
-    .on('touchstart', (event) => {
-      event.preventDefault();
-      const tt = document.getElementById('tooltip');
-      tt.innerHTML = `<div class="tt-dim">Dots are spread vertically to reduce overlap — y position carries no meaning. Only the x-axis (income) encodes data.</div>`;
-      tt.style.display = 'block';
-    }, {passive: false});
+    .attr('font-size', 10)
+    .style('letter-spacing', '0.05em')
+    .text('FREQ.');
 
   // Dots
   svgEl.append('g')
@@ -1863,6 +1866,12 @@ function closeSidebar() {
 document.getElementById('btn-filters').addEventListener('click', openSidebar);
 document.getElementById('btn-close-sidebar').addEventListener('click', closeSidebar);
 document.getElementById('sidebar-backdrop').addEventListener('click', closeSidebar);
+
+document.getElementById('btn-about').addEventListener('click', () => {
+  const panel = document.getElementById('chart-about');
+  const open = panel.style.display !== 'none' && panel.style.display !== '';
+  panel.style.display = open ? 'none' : 'block';
+});
 
 // Dismiss tooltip on tap of chart background
 document.getElementById('chart-wrap').addEventListener('touchstart', (e) => {
