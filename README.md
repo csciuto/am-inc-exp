@@ -4,8 +4,9 @@ An interactive visualization of the US household income distribution, built from
 IPUMS CPS ASEC microdata (survey years 2023–2025 / income years 2022–2024).
 
 It lets you filter the survey down to specific slices — by work status, income
-type, state, age band, education, and more — and see the resulting weighted
-income distribution, dot by dot, with reliability indicators on small samples.
+type, state, age band, education, marital status, roommate status, and more —
+and see the resulting weighted income distribution as dots, stacked bars, or a
+100% normalized view, with reliability indicators on small samples.
 
 It is a static, framework-free site: a single `index.html` plus a handful of
 precomputed data files served from GitHub Pages. There is no backend and no build
@@ -59,27 +60,29 @@ The page loads `codebook.json`, `stats_precomputed.json`, and `national.arrow`
 
 ### Using the explorer
 
-Each dot is one survey household, placed by income on a log x-axis (sized by its
-sampling weight; up to 3,000 dots are drawn via weighted subsampling).
-
-- **Filter** with the left sidebar tabs — *Demo* (age, sex, marital, education,
-  race, kids), *Geo* (metro, individual states), *Work* (work status, income type,
-  housing, secondary hours), and *Survey* (year). Clicking a value filters to it;
-  clicking again clears it; clicking other values in the same group adds them.
-  Active filters appear as removable chips above the chart; **Clear all** resets.
-- **Color** the dots by any dimension from the *Group* tab (income type by
-  default). The legend reflects the current coloring; clicking a legend swatch also
-  filters by that value.
+- **Filter** with the left sidebar tabs — *Demo* (age, sex, marital status,
+  roommates, householder income share, education, race/ethnicity, kids), *Geo*
+  (metro, individual states), *Work* (work status, income type, housing tenure,
+  secondary hours), and *Survey* (year). Clicking a value filters to it; clicking
+  again clears it; clicking other values in the same group adds them. Active
+  filters appear as removable chips above the chart; **Clear all** resets.
+- **Color** by any dimension from the *Group* tab (income type by default). The
+  legend reflects the current coloring; clicking a legend swatch also filters by
+  that value.
+- **Switch views** with the Dots / Bars / 100% toggle. Dots places up to 3,000
+  weighted-subsampled households on a log income axis; Bars shows a weighted
+  stacked histogram; 100% normalizes each bin to its own total. Hover any bar
+  segment for the income range, category, household count, and share of that band.
 - **Select a range** by clicking **Range** in the toolbar, then dragging across the
-  chart. A panel shows the median, mean, and share of households within that income
-  band. The selection appears as a chip and is cleared with ✕ or **Clear all**.
+  chart. A panel shows median, mean, and share of households within that income
+  band, with a by-group breakdown available.
 - **Read the stats** in the sidebar: median, mean, and P25/P75 for the current
-  slice, with a reliability badge. The **By group** tab breaks median/mean income
-  down by the active color dimension.
-- **Hover** any dot for a household's full detail (income, age, work status,
+  slice, with a reliability badge. The **By group** section breaks median/mean
+  income down by the active color dimension.
+- **Hover** any dot for the household's full detail (income, age, work status,
   location, weight, year).
-- **Deep-link** any view: filters, state selections, color mode, and range
-  selections are all reflected in the URL hash so you can bookmark or share.
+- **Deep-link** any view: filters, state selections, color mode, view mode, and
+  range selections are all reflected in the URL hash so you can bookmark or share.
 
 ### Run the tests
 
@@ -90,7 +93,7 @@ python3 -m pytest --browser chromium
 ```
 
 - `tests/test_preprocess.py` — 79 pure-function unit tests (no I/O, no network)
-- `tests/test_frontend.py` — 50 Playwright browser tests (need internet for the CDN scripts)
+- `tests/test_frontend.py` — 88 Playwright browser tests (need internet for the CDN scripts)
 
 ## How it works
 
@@ -101,7 +104,7 @@ docs/
   data/
     codebook.json        Labels + state metadata (always loaded)
     stats_precomputed.json   BRR-computed stats for ~5,500 filter cells (always loaded)
-    national.arrow       All households, columnar (always loaded; ~2.9MB)
+    national.arrow       All households, columnar (always loaded; ~6MB)
     states/XX.arrow      Per-state extracts — emitted but NOT used by the frontend*
 tests/                   Unit + browser tests
 ```
@@ -126,8 +129,8 @@ You need your own IPUMS CPS ASEC extract — a fixed-width `.dat.gz` plus its `.
 DDI codebook. Build it at [cps.ipums.org](https://cps.ipums.org/): choose the ASEC
 samples for the years you want (this build uses **ASEC 2023, 2024, 2025**), add the
 variables below, and select **fixed-width** output. The extract is person-level;
-the preprocessor reads the household roster (for cohabiting detection) and then
-collapses to one record per household.
+the preprocessor reads the household roster (for cohabiting and roommate detection)
+and then collapses to one record per household.
 
 **IPUMS variables to request** (the `WANTED` set in `preprocess.py`):
 
@@ -161,6 +164,9 @@ python preprocess.py \
 
 This writes `national.arrow`, the per-state files, `stats_precomputed.json`, and
 `codebook.json`. Computing BRR standard errors takes roughly 25 minutes.
+Pass `--skip-stats` to regenerate only the Arrow and codebook files (fast, ~2 min),
+which is useful when iterating on derived variables.
+
 Preprocessor dependencies: `numpy`, `pandas`, `pyarrow`.
 
 When adding a new survey year, verify that year's topcode value against the

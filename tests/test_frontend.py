@@ -229,6 +229,14 @@ class TestColorMode:
         page.locator(".cm-btn[data-mode='housing']").click()
         assert page.locator("#legend .legend-item").count() >= 4
 
+    def test_color_by_roommates_shows_3_entries(self, page: Page):
+        page.locator(".cm-btn[data-mode='has_roommate']").click()
+        assert page.locator("#legend .legend-item").count() == 3
+
+    def test_color_by_hh_share_shows_5_entries(self, page: Page):
+        page.locator(".cm-btn[data-mode='hh_share']").click()
+        assert page.locator("#legend .legend-item").count() == 5
+
     def test_color_mode_switch_preserves_dot_positions(self, page: Page):
         initial_cx = page.evaluate("""
             Array.from(document.querySelectorAll('#chart-svg circle'))
@@ -543,3 +551,56 @@ class TestViewToggle:
         page.wait_for_timeout(300)
         text = page.locator("#chart-svg").text_content()
         assert "%" in text
+
+
+# ---------------------------------------------------------------------------
+# Bar hover tooltips
+# ---------------------------------------------------------------------------
+
+class TestBarTooltip:
+    def _switch_to_bars(self, page: Page):
+        page.locator(".view-btn[data-view='bars']").click()
+        page.wait_for_timeout(300)
+
+    def test_bar_tooltip_hidden_initially(self, page: Page):
+        self._switch_to_bars(page)
+        expect(page.locator("#tooltip")).to_be_hidden()
+
+    def test_bar_tooltip_shows_on_hover(self, page: Page):
+        self._switch_to_bars(page)
+        page.locator("#chart-svg rect[style*='cursor']").first.hover(force=True)
+        expect(page.locator("#tooltip")).to_be_visible()
+
+    def test_bar_tooltip_contains_income_range(self, page: Page):
+        self._switch_to_bars(page)
+        page.locator("#chart-svg rect[style*='cursor']").first.hover(force=True)
+        expect(page.locator("#tooltip .tt-income")).to_contain_text("$")
+
+    def test_bar_tooltip_contains_dash_separator(self, page: Page):
+        self._switch_to_bars(page)
+        page.locator("#chart-svg rect[style*='cursor']").first.hover(force=True)
+        expect(page.locator("#tooltip .tt-income")).to_contain_text("–")
+
+    def test_bar_tooltip_contains_households(self, page: Page):
+        self._switch_to_bars(page)
+        page.locator("#chart-svg rect[style*='cursor']").first.hover(force=True)
+        expect(page.locator("#tooltip")).to_contain_text("households")
+
+    def test_bar_tooltip_contains_pct_of_band(self, page: Page):
+        self._switch_to_bars(page)
+        page.locator("#chart-svg rect[style*='cursor']").first.hover(force=True)
+        expect(page.locator("#tooltip")).to_contain_text("% of band")
+
+    def test_bar_tooltip_hides_on_mouse_away(self, page: Page):
+        self._switch_to_bars(page)
+        page.locator("#chart-svg rect[style*='cursor']").first.hover(force=True)
+        expect(page.locator("#tooltip")).to_be_visible()
+        page.mouse.move(5, 5)
+        expect(page.locator("#tooltip")).to_be_hidden()
+
+    def test_pct_view_tooltip_shows(self, page: Page):
+        page.locator(".view-btn[data-view='pct']").click()
+        page.wait_for_timeout(300)
+        page.locator("#chart-svg rect[style*='cursor']").first.hover(force=True)
+        expect(page.locator("#tooltip")).to_be_visible()
+        expect(page.locator("#tooltip")).to_contain_text("% of band")

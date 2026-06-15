@@ -353,6 +353,17 @@ def derive_variables(hh):
     # has_roommate (any household member with RELATE 1113=roomer/boarder or 1115=housemate)
     out["has_roommate"] = hh.get("_has_roommate", pd.Series(0, index=hh.index)).astype("uint8")
 
+    # hh_share — householder's INCTOT as share of HHINCOME
+    # 0: ≥90% (sole/primary)  1: 50–90%  2: 25–50%  3: <25%
+    inctot_hh = pd.to_numeric(hh.get("INCTOT", pd.Series(0, index=hh.index)), errors="coerce").fillna(0)
+    share = (inctot_hh / hhincome.clip(lower=1)).clip(0, 1)
+    hh_share = pd.Series(np.full(len(hh), 3, dtype=np.uint8), index=hh.index)
+    hh_share[hhincome > 0]                         = 3  # <25%
+    hh_share[(hhincome > 0) & (share >= 0.25)]     = 2  # 25–50%
+    hh_share[(hhincome > 0) & (share >= 0.50)]     = 1  # 50–90%
+    hh_share[(hhincome > 0) & (share >= 0.90)]     = 0  # ≥90% sole
+    out["hh_share"] = hh_share.values.astype("uint8")
+
     return out, hh  # return hh so we can attach rep weights later
 
 
@@ -405,6 +416,7 @@ ARROW_SCHEMA = pa.schema([
     ("race_ethnicity", pa.uint8()),
     ("housing",        pa.uint8()),
     ("has_roommate",   pa.uint8()),
+    ("hh_share",       pa.uint8()),
 ])
 
 
@@ -668,6 +680,7 @@ def write_codebook(derived, output_dir):
             "race_ethnicity":{"0":"White non-Hisp","1":"Black non-Hisp","2":"Hispanic","3":"Asian non-Hisp","4":"Other/Multiracial"},
             "metro":         {"0":"Non-metro","1":"Metro"},
             "has_roommate":  {"0":"No roommates","1":"Has roommate"},
+            "hh_share":      {"0":"≥90% sole","1":"50–90% primary","2":"25–50% equal/2nd","3":"<25% minor"},
             "multi_job_proxy":{"0":"No secondary work","1":"1–14 hrs secondary","2":"15–34 hrs secondary","3":"35+ hrs secondary"},
             "housing":       {"0":"Owner w/ mortgage","1":"Owner, free & clear","2":"Renter","3":"N/A"},
         },
@@ -690,6 +703,8 @@ def main():
     ap.add_argument("--input",  required=True, help=".dat or .dat.gz file")
     ap.add_argument("--ddi",    required=True, help=".xml DDI codebook")
     ap.add_argument("--output-dir", default="./docs/data")
+    ap.add_argument("--skip-stats", action="store_true",
+                    help="Skip BRR precomputed stats (fast Arrow-only run)")
     args = ap.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -729,7 +744,10 @@ def main():
     write_arrow_files(derived, output_dir)
 
     # 8. Precomputed stats
-    compute_precomputed_stats(derived, rep_cols, output_dir)
+    if args.skip_stats:
+        print("  Skipping BRR precomputed stats (--skip-stats)")
+    else:
+        compute_precomputed_stats(derived, rep_cols, output_dir)
 
     # 9. Codebook
     write_codebook(derived, output_dir)
