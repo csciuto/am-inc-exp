@@ -1101,10 +1101,10 @@ function renderChart() {
 
   // Y-axis label
   svgEl.append('text')
-    .attr('transform', `translate(${marginL - 44},${marginT + chartH / 2}) rotate(-90)`)
+    .attr('transform', `translate(12,${marginT + chartH / 2}) rotate(-90)`)
     .attr('text-anchor', 'middle')
-    .attr('fill', '#4a5580')
-    .attr('font-size', isMobile() ? 9 : 10)
+    .attr('fill', '#8892b0')
+    .attr('font-size', 11)
     .text('y: display jitter');
 
   // Dots
