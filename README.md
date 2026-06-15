@@ -120,8 +120,10 @@ the browser (no SE on that path, since replicate weights are not shipped). Small
 samples are flagged or suppressed via a reliability tier rather than shown as
 confident numbers.
 
-For architecture details, derivation rules, and conventions, see
-[`CLAUDE.md`](CLAUDE.md). For the original design intent, see [`PRD.md`](PRD.md).
+For the statistical methods, weighted estimators, BRR variance estimation, and
+derived-variable definitions, see [`METHODOLOGY.md`](METHODOLOGY.md). For
+architecture details and code conventions see [`CLAUDE.md`](CLAUDE.md). For the
+original design intent, see [`PRD.md`](PRD.md).
 
 ## Regenerating the data
 
