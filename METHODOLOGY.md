@@ -180,13 +180,15 @@ may undercount some arrangements in older surveys.
 
 ### has_roommate
 
-Detected from the household roster: any non-householder with `RELATE` in
-{1113 (roomer/boarder), 1115 (housemate/roommate)}.
+Detected from the household roster: any non-householder with `RELATE=1115`
+(housemate/roommate). The older roomer/boarder code (1113) is included in the
+detection logic but does not appear in ASEC 2023+ data — 1115 is the only
+active code for this relationship type.
 
-Note that CPS coding is conservative: people in genuinely shared-cost
-arrangements who don't identify clearly as a "housemate" may be coded
-as `RELATE=1116` (other non-relative) and are not captured here. The true
-roommate rate is likely higher than the ~2.3% this flag shows.
+Note that `RELATE=1116` is **not** "other non-relative" in ASEC 2023+ — it is
+the opposite-sex unmarried partner code, already used for cohabiting detection.
+There is no catch-all non-relative bucket in this data vintage. The ~2.3%
+roommate rate reflects genuine CPS coding rather than a detection gap.
 
 ### hh_share (householder income share)
 

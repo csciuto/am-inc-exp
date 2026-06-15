@@ -154,7 +154,7 @@ def detect_cohabiting(df):
     # 1114=unmarried partner (legacy), 1116=opposite-sex, 1117=same-sex (ASEC 2023+)
     partner_mask = df["RELATE"].isin([1114, 1116, 1117])
     partner_hh = set(zip(df.loc[partner_mask, "YEAR"], df.loc[partner_mask, "SERIAL"]))
-    # 1113=roomer/boarder, 1115=housemate/roommate
+    # 1115=housemate/roommate; 1113=roomer/boarder (legacy, absent from ASEC 2023+)
     roommate_mask = df["RELATE"].isin([1113, 1115])
     roommate_hh = set(zip(df.loc[roommate_mask, "YEAR"], df.loc[roommate_mask, "SERIAL"]))
     print(f"  {len(partner_hh):,} households flagged as cohabiting")
@@ -350,7 +350,7 @@ def derive_variables(hh):
     housing[spmmort == 3] = 2  # renter
     out["housing"] = housing.values.astype("uint8")
 
-    # has_roommate (any household member with RELATE 1113=roomer/boarder or 1115=housemate)
+    # has_roommate (RELATE=1115 housemate/roommate; 1113 boarder included but absent in ASEC 2023+)
     out["has_roommate"] = hh.get("_has_roommate", pd.Series(0, index=hh.index)).astype("uint8")
 
     # hh_share — householder's INCTOT as share of HHINCOME
