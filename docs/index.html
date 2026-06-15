@@ -1099,13 +1099,30 @@ function renderChart() {
   )
   .select('.domain').remove();
 
-  // Y-axis label
+  // Y-axis info icon
   svgEl.append('text')
-    .attr('transform', `translate(12,${marginT + chartH / 2}) rotate(-90)`)
+    .attr('x', 14)
+    .attr('y', marginT + chartH / 2)
     .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', 'central')
     .attr('fill', '#8892b0')
-    .attr('font-size', 11)
-    .text('y: display jitter');
+    .attr('font-size', 14)
+    .style('cursor', 'default')
+    .text('ⓘ')
+    .on('mouseover', (event) => {
+      const tt = document.getElementById('tooltip');
+      tt.innerHTML = `<div class="tt-dim">Dots are spread vertically to reduce overlap — y position carries no meaning. Only the x-axis (income) encodes data.</div>`;
+      tt.style.display = 'block';
+      moveTooltip(event);
+    })
+    .on('mousemove', moveTooltip)
+    .on('mouseout', hideTooltip)
+    .on('touchstart', (event) => {
+      event.preventDefault();
+      const tt = document.getElementById('tooltip');
+      tt.innerHTML = `<div class="tt-dim">Dots are spread vertically to reduce overlap — y position carries no meaning. Only the x-axis (income) encodes data.</div>`;
+      tt.style.display = 'block';
+    }, {passive: false});
 
   // Dots
   svgEl.append('g')
