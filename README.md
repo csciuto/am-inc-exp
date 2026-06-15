@@ -194,9 +194,7 @@ is normal for commit-time stamping without a CI build.
 
 ## Known bugs
 
-**Multi-year household deduplication** (`preprocess.py` line 166): `collapse_to_household` groups by `SERIAL` alone, but CPS reuses serial numbers across survey years. When pooling multiple ASEC years in one extract, later-year households that share a serial with an earlier-year household are silently dropped — roughly two-thirds of 2024 and 2025 records are lost. Fix: change `groupby("SERIAL")` to `groupby(["YEAR", "SERIAL"])`. Requires a preprocessor rerun.
-
-**Wage income uses householder only** (`preprocess.py` ~line 298): `wage_inc` and the `income_type` classification are computed from `INCWAGE + INCBUS` of the householder's person record alone, but `HHINCOME` (the denominator) is the full household total. Two-earner households where the non-householder is the primary earner will be misclassified — e.g. a household with $100k householder wages and $300k spouse wages shows a 25% wage share and is labeled "Mixed" rather than "Primarily wages". Fix: sum `INCWAGE` and `INCBUS` across all household members before the `.first()` collapse. Requires a preprocessor rerun.
+None currently known. See [GitHub Issues](https://github.com/csciuto/am-inc-exp/issues) for anything reported after this writing.
 
 ## License
 
