@@ -168,9 +168,14 @@ def detect_cohabiting(df):
 def collapse_to_household(df, cohabiting_keys, roommate_keys):
     df = df.sort_values(["YEAR", "SERIAL", "PERNUM"])
 
-    # Sum wage+business income across all household members before collapse
+    # Sum wage+business income across all household members before collapse.
+    # NIU sentinel for INCWAGE/INCBUS in IPUMS CPS is 99999999 — zero it out
+    # before summing so NIU members don't contaminate the household total.
+    NIU = 99_999_999
     incwage = pd.to_numeric(df.get("INCWAGE", 0), errors="coerce").fillna(0)
     incbus  = pd.to_numeric(df.get("INCBUS",  0), errors="coerce").fillna(0)
+    incwage = incwage.where(incwage < NIU, 0)
+    incbus  = incbus.where(incbus  < NIU, 0)
     hh_wage = (incwage + incbus).clip(lower=0).groupby(
         [df["YEAR"], df["SERIAL"]]
     ).transform("sum")
