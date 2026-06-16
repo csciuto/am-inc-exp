@@ -6,6 +6,15 @@ writes Arrow files and precomputed stats to docs/data/.
 
 Usage:
     python preprocess.py --input cps_00004.dat.gz --ddi cps_00004.xml --output-dir ./docs/data
+
+    # Override a failing check for one run (investigate before committing output):
+    python preprocess.py ... --allow-check state_median_range
+
+    # Skip all validation (emergency only — do not commit data produced this way):
+    python preprocess.py ... --skip-validation
+
+See the "Output validation" section below for the full check catalogue and how
+to add permanent exclusions via validation_config.json.
 """
 
 import argparse
@@ -147,7 +156,7 @@ WANTED = {
 # Cohabiting detection
 # ---------------------------------------------------------------------------
 def detect_cohabiting(df):
-    step(2, 9, "Cohabiting + roommate detection…")
+    step(2, 10, "Cohabiting + roommate detection…")
     if "RELATE" not in df.columns:
         print("  WARNING: RELATE not found — skipping")
         return set(), set()
@@ -195,7 +204,7 @@ def collapse_to_household(df, cohabiting_keys, roommate_keys):
 # Derive variables
 # ---------------------------------------------------------------------------
 def derive_variables(hh):
-    step(3, 9, "Deriving variables…")
+    step(3, 10, "Deriving variables…")
     out = pd.DataFrame()
     out["id"] = np.arange(len(hh), dtype=np.uint32)
 
@@ -436,12 +445,12 @@ def df_to_arrow(df):
 
 
 def write_arrow_files(derived, output_dir):
-    step(4, 9, "Writing national.arrow…")
+    step(5, 10, "Writing national.arrow…")
     path = output_dir / "national.arrow"
     write_arrow(df_to_arrow(derived), path)
     print(f"  {len(derived):,} rows, {path.stat().st_size/1e6:.1f}MB")
 
-    step(5, 9, "Writing state files…")
+    step(6, 10, "Writing state files…")
     states_dir = output_dir / "states"
     states_dir.mkdir(exist_ok=True)
     total = 0
@@ -577,7 +586,7 @@ def build_key(scope, filter_dict):
 # Precomputed stats
 # ---------------------------------------------------------------------------
 def compute_precomputed_stats(derived, rep_cols, output_dir):
-    step(6, 9, "Computing precomputed stats…")
+    step(7, 10, "Computing precomputed stats…")
     stats = {}
     dim_names = list(DIMS.keys())
 
@@ -646,7 +655,7 @@ def compute_precomputed_stats(derived, rep_cols, output_dir):
 
     print(f"  Total: {len(stats)} cells")
 
-    step(7, 9, "Writing stats_precomputed.json…")
+    step(8, 10, "Writing stats_precomputed.json…")
     p = output_dir / "stats_precomputed.json"
     with open(p, "w") as f:
         json.dump(stats, f, separators=(",", ":"))
@@ -658,7 +667,7 @@ def compute_precomputed_stats(derived, rep_cols, output_dir):
 # Codebook
 # ---------------------------------------------------------------------------
 def write_codebook(derived, output_dir):
-    step(8, 9, "Writing codebook.json…")
+    step(9, 10, "Writing codebook.json…")
     present_fips = {int(c) for c in derived["state"].unique()}
     cb = {
         "topcodes": {str(k): v for k, v in TOPCODES.items()},
@@ -701,6 +710,242 @@ def write_codebook(derived, output_dir):
 
 
 # ---------------------------------------------------------------------------
+# Output validation
+# ---------------------------------------------------------------------------
+# Sanity checks on the derived DataFrame. Runs after variable derivation and
+# exclusions but BEFORE writing any output, so a failure aborts early rather
+# than committing bad data.
+#
+# HOW IT WORKS
+#   validate_output() runs a fixed suite of named checks. Each check inspects
+#   the derived DataFrame and returns a list of violation strings. Any non-empty
+#   list is a failure. All failures are printed, then the process exits non-zero
+#   — unless silenced by an exclusion or a CLI flag.
+#
+# CLI FLAGS
+#   --skip-validation        Suppress all checks and continue writing output.
+#                            Use only for debugging. Never commit data produced
+#                            under this flag without understanding why it failed.
+#   --allow-check NAME       Suppress one named check for this run (repeatable).
+#                            Example: --allow-check state_median_range
+#                            Prefer permanent exclusions for recurring exceptions.
+#
+# PERMANENT EXCLUSIONS  (validation_config.json, in the working directory)
+#   Silences checks durably across runs without touching the code. Recommended
+#   whenever a check fires on data that is genuinely correct. Format:
+#
+#   {
+#     "_doc": "Why each exclusion exists. Keep this up to date.",
+#     "skip_checks": [                        // silence an entire check every run
+#       "check_name"
+#     ],
+#     "skip_record_ids": {                    // silence specific record IDs
+#       "wage_inc_cap": [1234, 5678],         //   for a given check
+#       "_reason_wage_inc_cap": "IDs 1234/5678 are legitimate dual-high-earner HHs
+#                                confirmed against raw INCWAGE values."
+#     },
+#     "skip_states": {                        // silence specific FIPS codes
+#       "state_median_range": [2, 11],        //   for state_median_range
+#       "_reason_state_median_range": "AK (2) and DC (11) historically sit
+#                                      outside the $20K–$300K band."
+#     }
+#   }
+#
+#   Tip: add a "_reason_<check>" key beside every exclusion block. It has no
+#   effect on the code but documents why the exclusion is safe.
+#
+# NAMED CHECKS
+#   wage_inc_niu_sentinel    wage_inc must not be a near-multiple of the IPUMS
+#                            NIU sentinel 99,999,999. Catches the household-sum
+#                            bug where NIU members inflate the wage total.
+#   wage_inc_cap             wage_inc must not exceed 2× the max topcode value
+#                            (~$4.2M). Higher values are physically impossible
+#                            for CPS households.
+#   income_type_consistency  income_type classification must agree with the
+#                            wage_inc/inc ratio used to derive it. Disagreement
+#                            means either the derivation or the ratio is wrong.
+#   income_type_distribution Nationally, 35–65% of weighted households should
+#                            be wage-primary (income_type==0). Large shifts flag
+#                            a derivation bug or a NIU contamination problem.
+#   state_median_range       Every state's weighted median income must fall in
+#                            $20K–$300K. Extreme values flag bad weights or
+#                            corrupted income fields.
+#   column_value_ranges      All categorical uint8 columns must contain only
+#                            their defined code values (no 255s or surprises).
+# ---------------------------------------------------------------------------
+
+_VALIDATION_CONFIG_FILE = Path("validation_config.json")
+_NIU_SENTINEL = 99_999_999
+
+
+def _load_validation_config(path=_VALIDATION_CONFIG_FILE):
+    if path.exists():
+        with open(path) as f:
+            return json.load(f)
+    return {}
+
+
+def _check_wage_inc_niu_sentinel(derived, cfg):
+    wi = derived["wage_inc"].values.astype(np.int64)
+    remainder = wi % _NIU_SENTINEL
+    tol = 1_000_000
+    flagged = (wi >= _NIU_SENTINEL) & (
+        (remainder < tol) | (remainder > _NIU_SENTINEL - tol)
+    )
+    bad = derived.loc[flagged]
+    excluded = set(cfg.get("skip_record_ids", {}).get("wage_inc_niu_sentinel", []))
+    bad = bad[~bad["id"].isin(excluded)]
+    if len(bad):
+        ids = bad["id"].tolist()
+        return [
+            f"{len(bad)} records have wage_inc near a multiple of {_NIU_SENTINEL:,} "
+            f"(first IDs: {ids[:5]}). NIU sentinel values from INCWAGE/INCBUS are "
+            f"leaking into the household wage sum."
+        ]
+    return []
+
+
+def _check_wage_inc_cap(derived, cfg):
+    cap = max(TOPCODES.values()) * 2
+    over = derived[derived["wage_inc"] > cap]
+    excluded = set(cfg.get("skip_record_ids", {}).get("wage_inc_cap", []))
+    over = over[~over["id"].isin(excluded)]
+    if len(over):
+        worst = (
+            over.nlargest(3, "wage_inc")[["id", "wage_inc", "inc"]].to_dict("records")
+        )
+        return [
+            f"{len(over)} records have wage_inc > {cap:,} (2× max topcode). "
+            f"Top offenders: {worst}"
+        ]
+    return []
+
+
+def _check_income_type_consistency(derived, cfg):
+    pos = derived[derived["inc"] > 0].copy()
+    ratio = pos["wage_inc"] / pos["inc"].clip(lower=1)
+    margin = 0.01  # absorb uint32 rounding
+    bad_wages   = pos[(pos["income_type"] == 0) & (ratio < 0.75 - margin)]
+    bad_passive = pos[(pos["income_type"] == 2) & (ratio >= 0.25 + margin)]
+    excluded = set(cfg.get("skip_record_ids", {}).get("income_type_consistency", []))
+    bad_wages   = bad_wages[~bad_wages["id"].isin(excluded)]
+    bad_passive = bad_passive[~bad_passive["id"].isin(excluded)]
+    msgs = []
+    if len(bad_wages):
+        msgs.append(
+            f"{len(bad_wages)} records are income_type=0 (wages) but have "
+            f"wage_inc/inc < 0.75, contradicting their classification"
+        )
+    if len(bad_passive):
+        msgs.append(
+            f"{len(bad_passive)} records are income_type=2 (passive) but have "
+            f"wage_inc/inc >= 0.25, contradicting their classification"
+        )
+    return msgs
+
+
+def _check_income_type_distribution(derived, cfg):
+    pos = derived[derived["inc"] > 0]
+    if len(pos) == 0:
+        return ["No positive-income records found"]
+    w = pos["weight"].values
+    share = float(
+        np.average((pos["income_type"].values == 0).astype(float), weights=w)
+    )
+    pct = share * 100
+    lo, hi = 35.0, 65.0
+    if not (lo <= pct <= hi):
+        return [
+            f"National wage-primary share is {pct:.1f}%, expected {lo:.0f}–{hi:.0f}%. "
+            f"A large shift suggests an income_type derivation error."
+        ]
+    return []
+
+
+def _check_state_median_range(derived, cfg):
+    excluded = set(cfg.get("skip_states", {}).get("state_median_range", []))
+    lo, hi = 20_000, 300_000
+    violations = []
+    for code in sorted(derived["state"].unique()):
+        fips = int(code)
+        if fips in excluded:
+            continue
+        sub = derived[derived["state"] == code]
+        if len(sub) < 50:
+            continue
+        med = w_median(sub["inc"].values, sub["weight"].values)
+        if not (lo <= med <= hi):
+            name = FIPS_NAMES.get(fips, f"FIPS {fips}")
+            violations.append(
+                f"{name} (FIPS {fips}): median ${med:,.0f}, "
+                f"expected ${lo:,}–${hi:,}"
+            )
+    return violations
+
+
+def _check_column_value_ranges(derived, cfg):
+    valid = {
+        "work_status":     set(range(7)),
+        "income_type":     set(range(4)),
+        "age_bucket":      set(range(8)),
+        "marst":           set(range(5)),
+        "educ":            set(range(5)),
+        "region":          {0, 1, 2, 3, 4},
+        "sex":             {0, 1, 2},
+        "kids":            {0, 1},
+        "metro":           {0, 1},
+        "has_roommate":    {0, 1},
+        "topcoded":        {0, 1},
+        "housing":         {0, 1, 2, 3},
+        "multi_job_proxy": {0, 1, 2, 3},
+        "race_ethnicity":  set(range(5)),
+        "hh_share":        {0, 1, 2, 3},
+        "youngest_child":  {0, 1, 2, 3},
+        "hours_category":  {0, 1, 2, 3},
+    }
+    msgs = []
+    for col, allowed in valid.items():
+        if col not in derived.columns:
+            continue
+        bad_vals = set(map(int, derived[col].unique())) - allowed
+        if bad_vals:
+            msgs.append(f"'{col}' contains unexpected values: {sorted(bad_vals)}")
+    return msgs
+
+
+_CHECKS = [
+    ("wage_inc_niu_sentinel",    _check_wage_inc_niu_sentinel),
+    ("wage_inc_cap",             _check_wage_inc_cap),
+    ("income_type_consistency",  _check_income_type_consistency),
+    ("income_type_distribution", _check_income_type_distribution),
+    ("state_median_range",       _check_state_median_range),
+    ("column_value_ranges",      _check_column_value_ranges),
+]
+
+
+def validate_output(derived, config_path=_VALIDATION_CONFIG_FILE, allow_checks=()):
+    """
+    Run all output sanity checks. Returns list of (check_name, message) failures.
+    allow_checks: iterable of check names to skip for this run (CLI override).
+    Permanent per-run exclusions live in validation_config.json.
+    """
+    cfg = _load_validation_config(config_path)
+    skip = set(cfg.get("skip_checks", [])) | set(allow_checks)
+
+    failures = []
+    for name, fn in _CHECKS:
+        if name in skip:
+            print(f"    skipped: {name}")
+            continue
+        msgs = fn(derived, cfg)
+        for msg in msgs:
+            failures.append((name, msg))
+        label = "FAIL" if msgs else "ok  "
+        print(f"    {label}: {name}" + (f"\n         {msgs[0][:120]}" if msgs else ""))
+    return failures
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
@@ -710,6 +955,14 @@ def main():
     ap.add_argument("--output-dir", default="./docs/data")
     ap.add_argument("--skip-stats", action="store_true",
                     help="Skip BRR precomputed stats (fast Arrow-only run)")
+    ap.add_argument("--skip-validation", action="store_true",
+                    help="Bypass all output validation checks. Use only for debugging; "
+                         "never commit data produced under this flag without understanding "
+                         "why validation failed.")
+    ap.add_argument("--allow-check", action="append", default=[], metavar="CHECK",
+                    help="Suppress one named validation check for this run (repeatable). "
+                         "For recurring exceptions, add to validation_config.json instead. "
+                         "Valid names: " + ", ".join(n for n, _ in _CHECKS))
     args = ap.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -719,7 +972,7 @@ def main():
     t0 = time.time()
 
     # 1. Load
-    step(1, 9, "Loading CPS fixed-width file…")
+    step(1, 10, "Loading CPS fixed-width file…")
     df = load_fixed_width(args.input, args.ddi, wanted=WANTED)
 
     # 2. Cohabiting + roommate detection
@@ -734,6 +987,28 @@ def main():
 
     # 5. Exclusions
     hh, derived = apply_exclusions(hh, derived)
+
+    # 4. Validate
+    step(4, 10, "Validating output…")
+    failures = validate_output(derived, allow_checks=args.allow_check)
+    if failures:
+        print(f"\n  {len(failures)} validation failure(s):")
+        for name, msg in failures:
+            print(f"    [{name}] {msg}")
+        if args.skip_validation:
+            print(
+                "\n  WARNING: continuing due to --skip-validation. "
+                "Do not commit output without investigating these failures."
+            )
+        else:
+            sys.exit(
+                f"\nAborting: {len(failures)} validation failure(s). "
+                f"Fix the data, use --allow-check <name> to silence a specific check, "
+                f"or add a permanent exclusion to validation_config.json. "
+                f"See source comments for the exclusion format."
+            )
+    else:
+        print(f"  All {len(_CHECKS)} checks passed.")
 
     # 6. Attach replicate weights to derived for BRR
     rep_cols = [f"REPWTP{i}" for i in range(1, 161) if f"REPWTP{i}" in hh.columns]
@@ -757,7 +1032,7 @@ def main():
     # 9. Codebook
     write_codebook(derived, output_dir)
 
-    step(9, 9, f"Done in {time.time()-t0:.0f}s. Output in {output_dir}")
+    step(10, 10, f"Done in {time.time()-t0:.0f}s. Output in {output_dir}")
 
 
 if __name__ == "__main__":
