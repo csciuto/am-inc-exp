@@ -14,10 +14,5 @@ docs/data/states/
 # Note: national.arrow, stats_precomputed.json, and codebook.json are intentionally
 # tracked — the GitHub Pages site fetches them at runtime and CI cannot rebuild them.
 
-# Node (debugging artifact, not part of the project)
-node_modules/
-package.json
-package-lock.json
-
 # OS
 .DS_Store
