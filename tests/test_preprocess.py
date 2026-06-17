@@ -93,10 +93,10 @@ def test_build_key_region_scope():
 
 def _frame(n, inc=50_000, w=1.0, mjp=0, itype=0):
     return pd.DataFrame({
-        "inc":             np.full(n, inc, dtype=np.uint32),
-        "weight":          np.full(n, w,   dtype=np.float32),
-        "multi_job_proxy": np.full(n, mjp, dtype=np.uint8),
-        "income_type":     np.full(n, itype, dtype=np.uint8),
+        "inc":             np.full(n, inc,   dtype=np.uint32),
+        "weight":          np.full(n, w,     dtype=np.float32),
+        "multi_job_proxy": np.full(n, mjp,   dtype=np.uint8),
+        "passive_pct":     np.full(n, itype, dtype=np.uint8),
     })
 
 
@@ -272,23 +272,37 @@ def test_work_status_wage_wins_over_self_emp():
 
 
 # ---------------------------------------------------------------------------
-# income_type
+# passive_pct (replaces income_type)
 # ---------------------------------------------------------------------------
 
-def test_income_type_primarily_wages():
-    assert _row(HHINCOME=80_000, INCWAGE=70_000)["income_type"] == 0
+def test_passive_pct_primarily_wages():
+    # 70/80 = 87.5% wages → bucket 0 (≥75%)
+    assert _row(HHINCOME=80_000, INCWAGE=70_000)["passive_pct"] == 0
 
 
-def test_income_type_mixed():
-    assert _row(HHINCOME=80_000, INCWAGE=40_000)["income_type"] == 1
+def test_passive_pct_majority_wage():
+    # 52/80 = 65% wages → bucket 1 (50–74%)
+    assert _row(HHINCOME=80_000, INCWAGE=52_000)["passive_pct"] == 1
 
 
-def test_income_type_passive():
-    assert _row(HHINCOME=80_000, INCWAGE=10_000)["income_type"] == 2
+def test_passive_pct_mixed():
+    # 40/80 = 50% wages → bucket 1 boundary; 30/80 = 37.5% → bucket 2
+    assert _row(HHINCOME=80_000, INCWAGE=30_000)["passive_pct"] == 2
 
 
-def test_income_type_zero_income():
-    assert _row(HHINCOME=0, INCWAGE=0)["income_type"] == 3
+def test_passive_pct_mostly_passive():
+    # 10/80 = 12.5% wages → bucket 3 (<25%)
+    assert _row(HHINCOME=80_000, INCWAGE=10_000)["passive_pct"] == 3
+
+
+def test_passive_pct_entirely_passive():
+    # 0 wages → bucket 4
+    assert _row(HHINCOME=80_000, INCWAGE=0)["passive_pct"] == 4
+
+
+def test_passive_pct_zero_income():
+    # zero/negative income → bucket 4
+    assert _row(HHINCOME=0, INCWAGE=0)["passive_pct"] == 4
 
 
 # ---------------------------------------------------------------------------

@@ -147,7 +147,7 @@ WANTED = {
     "RELATE", "AGE", "SEX", "RACE", "MARST", "NCHILD", "YNGCH",
     "HISPAN", "EDUC",
     "EMPSTAT", "CLASSWKR", "WKSWORK2", "UHRSWORKLY", "UHRSWORKT", "UHRSWORK1",
-    "INCTOT", "INCWAGE", "INCBUS", "INCSS", "INCWELFR", "INCDIVID", "INCRENT",
+    "INCTOT", "INCWAGE", "INCBUS", "INCSS", "INCWELFR", "INCDIVID", "INCRENT", "INCRETIR",
     "SPMMORT",
 } | {f"REPWTP{i}" for i in range(1, 161)}
 
@@ -185,11 +185,40 @@ def collapse_to_household(df, cohabiting_keys, roommate_keys):
     incbus  = pd.to_numeric(df.get("INCBUS",  0), errors="coerce").fillna(0)
     incwage = incwage.where(incwage < NIU, 0)
     incbus  = incbus.where(incbus  < NIU, 0)
-    hh_wage = (incwage + incbus).clip(lower=0).groupby(
-        [df["YEAR"], df["SERIAL"]]
-    ).transform("sum")
+
+    yr_ser  = [df["YEAR"], df["SERIAL"]]
+    hh_wage = (incwage + incbus).clip(lower=0).groupby(yr_ser).transform("sum")
+
+    # Count wage/business earners per household
+    hh_earner_count = (
+        ((incwage > 0) | (incbus > 0)).astype(int)
+        .groupby(yr_ser).transform("sum").clip(upper=3)
+    )
+    # Householder's own wage+business income (PERNUM==1)
+    hh_householder_wage = (
+        (incwage + incbus).where(df["PERNUM"] == 1, 0)
+        .groupby(yr_ser).transform("sum")
+    )
+    # Household member count
+    hh_size_series = df.groupby(["YEAR", "SERIAL"])["PERNUM"].transform("count")
+
+    # Sum other income components across all household members.
+    # Non-wage CPS income variables use 9,999,999 as NIU/missing sentinel.
+    NIU_OTHER = 9_999_999
+    other_sums = {}
+    for _col in ["INCSS", "INCRETIR", "INCDIVID", "INCRENT", "INCWELFR"]:
+        if _col in df.columns:
+            _vals = pd.to_numeric(df[_col], errors="coerce").fillna(0)
+            _vals = _vals.where(_vals < NIU_OTHER, 0).clip(lower=0)
+            other_sums[_col] = _vals.groupby(yr_ser).transform("sum")
+
     df = df.copy()
-    df["_hh_wage_sum"] = hh_wage
+    df["_hh_wage_sum"]      = hh_wage
+    df["_hh_earner_count"]  = hh_earner_count
+    df["_householder_wage"] = hh_householder_wage
+    df["_hh_size"]          = hh_size_series
+    for _col, _s in other_sums.items():
+        df[f"_hh_{_col.lower()}_sum"] = _s
 
     hh = df.groupby(["YEAR", "SERIAL"], sort=False).first().reset_index()
 
@@ -217,9 +246,10 @@ def derive_variables(hh):
     incwage    = pd.to_numeric(hh.get("_hh_wage_sum", hh.get("INCWAGE", pd.Series(0, index=hh.index))), errors="coerce").fillna(0)
     incbus     = pd.Series(0, index=hh.index)  # already summed into incwage via _hh_wage_sum
     incss      = pd.to_numeric(hh.get("INCSS",    pd.Series(0, index=hh.index)), errors="coerce").fillna(0)
-    incdivid   = pd.to_numeric(hh.get("INCDIVID", pd.Series(0, index=hh.index)), errors="coerce").fillna(0)
-    incrent    = pd.to_numeric(hh.get("INCRENT",  pd.Series(0, index=hh.index)), errors="coerce").fillna(0)
-    incwelfr   = pd.to_numeric(hh.get("INCWELFR", pd.Series(0, index=hh.index)), errors="coerce").fillna(0)
+
+    wage_income  = incwage.clip(lower=0)   # = _hh_wage_sum; incbus is 0 here
+    hhincome_pos = hhincome.clip(lower=1)
+    wage_share   = wage_income / hhincome_pos
 
     out["inc"]      = hhincome.clip(lower=0).astype(np.uint32)
     out["wage_inc"] = (incwage + incbus).clip(lower=0).astype(np.uint32)
@@ -326,16 +356,61 @@ def derive_variables(hh):
     mjp[valid_hrs & (sec >= 35)]               = 3
     out["multi_job_proxy"] = mjp.values.astype("uint8")
 
-    # income_type
-    wage_income = (incwage + incbus).clip(lower=0)
-    hhincome_pos = hhincome.clip(lower=1)
-    wage_share = wage_income / hhincome_pos
+    # earner_count: 0=none, 1=one, 2=two, 3=three or more
+    raw_ec = pd.to_numeric(
+        hh.get("_hh_earner_count", pd.Series(0, index=hh.index)), errors="coerce"
+    ).fillna(0)
+    out["earner_count"] = raw_ec.clip(0, 3).astype("uint8")
 
-    it = pd.Series(np.full(len(hh), 3, dtype=np.uint8), index=hh.index)  # zero/neg
-    it[hhincome > 0]                               = 2  # primarily passive
-    it[(hhincome > 0) & (wage_share >= 0.25)]      = 1  # mixed
-    it[(hhincome > 0) & (wage_share >= 0.75)]      = 0  # primarily wages
-    out["income_type"] = it.values.astype("uint8")
+    # breadwinner: householder's wage income as share of total household wages
+    # 0=sole/dominant(≥90%)  1=primary(60–89%)  2=co-earner(40–59%)
+    # 3=secondary(<40%, >0)  4=non-earner (householder has no wages)
+    hw = pd.to_numeric(
+        hh.get("_householder_wage", pd.Series(0, index=hh.index)), errors="coerce"
+    ).fillna(0)
+    hw_ratio = (hw / wage_income.clip(lower=1)).clip(0, 1)
+    bw = pd.Series(np.full(len(hh), 4, dtype=np.uint8), index=hh.index)
+    has_wages = wage_income > 0
+    bw[has_wages & (hw_ratio >= 0.90)]                       = 0
+    bw[has_wages & (hw_ratio >= 0.60) & (hw_ratio < 0.90)]  = 1
+    bw[has_wages & (hw_ratio >= 0.40) & (hw_ratio < 0.60)]  = 2
+    bw[has_wages & (hw_ratio > 0)     & (hw_ratio < 0.40)]  = 3
+    out["breadwinner"] = bw.values.astype("uint8")
+
+    # passive_pct: wage share of household income (5 buckets)
+    # 0=≥75% wages  1=50–74%  2=25–49% mixed  3=<25% wages  4=entirely passive/zero
+    pp = pd.Series(np.full(len(hh), 4, dtype=np.uint8), index=hh.index)
+    pp[(hhincome > 0) & (wage_share > 0)]       = 3
+    pp[(hhincome > 0) & (wage_share >= 0.25)]   = 2
+    pp[(hhincome > 0) & (wage_share >= 0.50)]   = 1
+    pp[(hhincome > 0) & (wage_share >= 0.75)]   = 0
+    out["passive_pct"] = pp.values.astype("uint8")
+
+    # passive_source: dominant non-wage income type
+    # 0=SS/disability  1=retirement/pension  2=capital(div+rent)  3=public assistance
+    # 4=N/A (household is wage-dominant, passive_pct==0)
+    def _hh_inc(col):
+        return pd.to_numeric(
+            hh.get(f"_hh_{col.lower()}_sum", pd.Series(0, index=hh.index)),
+            errors="coerce",
+        ).fillna(0)
+
+    incss_hh    = _hh_inc("INCSS")
+    incretir_hh = _hh_inc("INCRETIR")
+    capital_hh  = _hh_inc("INCDIVID") + _hh_inc("INCRENT")
+    welfare_hh  = _hh_inc("INCWELFR")
+
+    passive_df  = pd.DataFrame(
+        {0: incss_hh, 1: incretir_hh, 2: capital_hh, 3: welfare_hh},
+        index=hh.index,
+    )
+    dominant        = passive_df.idxmax(axis=1).astype("uint8")
+    non_wage_total  = incss_hh + incretir_hh + capital_hh + welfare_hh
+    has_passive     = (wage_share < 0.75) & (non_wage_total > 0) & (hhincome > 0)
+
+    ps = pd.Series(np.full(len(hh), 4, dtype=np.uint8), index=hh.index)
+    ps[has_passive] = dominant[has_passive]
+    out["passive_source"] = ps.values.astype("uint8")
 
     # topcoded
     year_raw = pd.to_numeric(hh["YEAR"], errors="coerce").fillna(0).astype(int)
@@ -367,16 +442,16 @@ def derive_variables(hh):
     # has_roommate (RELATE=1115 housemate/roommate; 1113 boarder included but absent in ASEC 2023+)
     out["has_roommate"] = hh.get("_has_roommate", pd.Series(0, index=hh.index)).astype("uint8")
 
-    # hh_share — householder's INCTOT as share of HHINCOME
-    # 0: ≥90% (sole/primary)  1: 50–90%  2: 25–50%  3: <25%
-    inctot_hh = pd.to_numeric(hh.get("INCTOT", pd.Series(0, index=hh.index)), errors="coerce").fillna(0)
-    share = (inctot_hh / hhincome.clip(lower=1)).clip(0, 1)
-    hh_share = pd.Series(np.full(len(hh), 3, dtype=np.uint8), index=hh.index)
-    hh_share[hhincome > 0]                         = 3  # <25%
-    hh_share[(hhincome > 0) & (share >= 0.25)]     = 2  # 25–50%
-    hh_share[(hhincome > 0) & (share >= 0.50)]     = 1  # 50–90%
-    hh_share[(hhincome > 0) & (share >= 0.90)]     = 0  # ≥90% sole
-    out["hh_share"] = hh_share.values.astype("uint8")
+    # hh_size: number of household members (capped at 20 for uint8 range clarity)
+    out["hh_size"] = pd.to_numeric(
+        hh.get("_hh_size", pd.Series(1, index=hh.index)), errors="coerce"
+    ).fillna(1).clip(1, 20).astype("uint8")
+
+    # n_children: count of own children in household (nchild already computed above)
+    out["n_children"] = nchild.clip(0, 9).astype("uint8")
+
+    # passive_inc: estimated non-wage income for tooltip display
+    out["passive_inc"] = (hhincome - wage_income).clip(lower=0).astype(np.uint32)
 
     return out, hh  # return hh so we can attach rep weights later
 
@@ -425,12 +500,17 @@ ARROW_SCHEMA = pa.schema([
     ("hours_category", pa.uint8()),
     ("weeks_worked",   pa.uint8()),
     ("multi_job_proxy", pa.uint8()),
-    ("income_type",    pa.uint8()),
-    ("topcoded",       pa.uint8()),
-    ("race_ethnicity", pa.uint8()),
-    ("housing",        pa.uint8()),
-    ("has_roommate",   pa.uint8()),
-    ("hh_share",       pa.uint8()),
+    ("topcoded",        pa.uint8()),
+    ("race_ethnicity",  pa.uint8()),
+    ("housing",         pa.uint8()),
+    ("has_roommate",    pa.uint8()),
+    ("earner_count",    pa.uint8()),
+    ("breadwinner",     pa.uint8()),
+    ("passive_pct",     pa.uint8()),
+    ("passive_source",  pa.uint8()),
+    ("hh_size",         pa.uint8()),
+    ("n_children",      pa.uint8()),
+    ("passive_inc",     pa.uint32()),
 ])
 
 
@@ -541,7 +621,7 @@ def compute_cell(subset, rep_cols=None):
         "iqr":          int(round(p75 - p25)),
         "sd":           int(round(w_std(inc, w))),
         "multi_job_pct":round(w_share(subset["multi_job_proxy"].values > 0, w), 4),
-        "wage_pct":     round(w_share(subset["income_type"].values == 0, w), 4),
+        "wage_pct":     round(w_share(subset["passive_pct"].values == 0, w), 4),
         "rel":          3 if n >= 500 else 2 if n >= 200 else 1,
     }
     if rep_cols:
@@ -562,17 +642,20 @@ def compute_cell(subset, rep_cols=None):
 # Dimension definitions
 # ---------------------------------------------------------------------------
 DIMS = {
-    "age":   ("age_bucket",     list(range(8))),
-    "sex":   ("sex",            [1, 2]),
-    "marst": ("marst",          list(range(5))),
-    "educ":  ("educ",           list(range(5))),
-    "region":("region",         [1, 2, 3, 4]),
-    "work":  ("work_status",    list(range(7))),
-    "itype": ("income_type",    list(range(4))),
-    "kids":  ("kids",           [0, 1]),
-    "race":  ("race_ethnicity", list(range(5))),
-    "mjob":  ("multi_job_proxy", [0, 1, 2, 3]),
-    "house": ("housing",         [0, 1, 2]),
+    "age":    ("age_bucket",    list(range(8))),
+    "sex":    ("sex",           [1, 2]),
+    "marst":  ("marst",         list(range(5))),
+    "educ":   ("educ",          list(range(5))),
+    "region": ("region",        [1, 2, 3, 4]),
+    "work":   ("work_status",   list(range(7))),
+    "kids":   ("kids",          [0, 1]),
+    "race":   ("race_ethnicity", list(range(5))),
+    "mjob":   ("multi_job_proxy", [0, 1, 2, 3]),
+    "house":  ("housing",        [0, 1, 2]),
+    "earners":("earner_count",  [0, 1, 2, 3]),
+    "bread":  ("breadwinner",   [0, 1, 2, 3, 4]),
+    "ppct":   ("passive_pct",   [0, 1, 2, 3, 4]),
+    "psrc":   ("passive_source",[0, 1, 2, 3, 4]),
 }
 
 
@@ -627,7 +710,7 @@ def compute_precomputed_stats(derived, rep_cols, output_dir):
         sc = int(code)
         sdf = derived[derived["state"] == code]
         add(f"state={sc}", sdf, {})
-        for dn in ["age", "work", "itype"]:
+        for dn in ["age", "work", "ppct", "earners"]:
             col, vals = DIMS[dn]
             for v in vals:
                 sub = sdf[sdf[col] == v]
@@ -687,14 +770,16 @@ def write_codebook(derived, output_dir):
             "educ":          {"0":"< HS","1":"HS diploma","2":"Some college","3":"Bachelor's","4":"Graduate"},
             "region":        {"1":"Northeast","2":"Midwest","3":"South","4":"West"},
             "work_status":   {"0":"FT wage","1":"FT self-emp","2":"FT part-year","3":"Part-time","4":"Unemployed","5":"Retired","6":"Not working"},
-            "income_type":   {"0":"Primarily wages","1":"Mixed","2":"Passive/transfer","3":"Zero/negative"},
+            "earner_count":  {"0":"No earners","1":"One earner","2":"Two earners","3":"Three or more"},
+            "breadwinner":   {"0":"Sole/dominant","1":"Primary earner","2":"Co-earner","3":"Secondary earner","4":"Non-earner"},
+            "passive_pct":   {"0":"≥75% wages","1":"50–74% wages","2":"25–49% mixed","3":"<25% wages","4":"Entirely passive"},
+            "passive_source":{"0":"SS/disability","1":"Retirement/pension","2":"Capital (div/rent)","3":"Public assistance","4":"Primarily wages"},
             "kids":          {"0":"No children","1":"Kids present"},
             "youngest_child":{"0":"No children","1":"Under 5","2":"5–12","3":"13–17"},
             "hours_category":{"0":"Full-time","1":"Part-time","2":"Marginal","3":"N/A"},
             "race_ethnicity":{"0":"White non-Hisp","1":"Black non-Hisp","2":"Hispanic","3":"Asian non-Hisp","4":"Other/Multiracial"},
             "metro":         {"0":"Non-metro","1":"Metro"},
             "has_roommate":  {"0":"No roommates","1":"Has roommate"},
-            "hh_share":      {"0":"≥90% sole","1":"50–90% primary","2":"25–50% equal/2nd","3":"<25% minor"},
             "multi_job_proxy":{"0":"No secondary work","1":"1–14 hrs secondary","2":"15–34 hrs secondary","3":"35+ hrs secondary"},
             "housing":       {"0":"Owner w/ mortgage","1":"Owner, free & clear","2":"Renter","3":"N/A"},
         },
@@ -825,21 +910,21 @@ def _check_income_type_consistency(derived, cfg):
     pos = derived[derived["inc"] > 0].copy()
     ratio = pos["wage_inc"] / pos["inc"].clip(lower=1)
     margin = 0.01  # absorb uint32 rounding
-    bad_wages   = pos[(pos["income_type"] == 0) & (ratio < 0.75 - margin)]
-    bad_passive = pos[(pos["income_type"] == 2) & (ratio >= 0.25 + margin)]
+    bad_wages   = pos[(pos["passive_pct"] == 0) & (ratio < 0.75 - margin)]
+    bad_passive = pos[(pos["passive_pct"] == 4) & (ratio > margin)]
     excluded = set(cfg.get("skip_record_ids", {}).get("income_type_consistency", []))
     bad_wages   = bad_wages[~bad_wages["id"].isin(excluded)]
     bad_passive = bad_passive[~bad_passive["id"].isin(excluded)]
     msgs = []
     if len(bad_wages):
         msgs.append(
-            f"{len(bad_wages)} records are income_type=0 (wages) but have "
+            f"{len(bad_wages)} records are passive_pct=0 (≥75% wages) but have "
             f"wage_inc/inc < 0.75, contradicting their classification"
         )
     if len(bad_passive):
         msgs.append(
-            f"{len(bad_passive)} records are income_type=2 (passive) but have "
-            f"wage_inc/inc >= 0.25, contradicting their classification"
+            f"{len(bad_passive)} records are passive_pct=4 (entirely passive) but have "
+            f"wage_inc/inc > 0, contradicting their classification"
         )
     return msgs
 
@@ -850,14 +935,14 @@ def _check_income_type_distribution(derived, cfg):
         return ["No positive-income records found"]
     w = pos["weight"].values
     share = float(
-        np.average((pos["income_type"].values == 0).astype(float), weights=w)
+        np.average((pos["passive_pct"].values == 0).astype(float), weights=w)
     )
     pct = share * 100
     lo, hi = 35.0, 65.0
     if not (lo <= pct <= hi):
         return [
             f"National wage-primary share is {pct:.1f}%, expected {lo:.0f}–{hi:.0f}%. "
-            f"A large shift suggests an income_type derivation error."
+            f"A large shift suggests a passive_pct derivation error."
         ]
     return []
 
@@ -885,23 +970,26 @@ def _check_state_median_range(derived, cfg):
 
 def _check_column_value_ranges(derived, cfg):
     valid = {
-        "work_status":     set(range(7)),
-        "income_type":     set(range(4)),
-        "age_bucket":      set(range(8)),
-        "marst":           set(range(5)),
-        "educ":            set(range(5)),
-        "region":          {0, 1, 2, 3, 4},
-        "sex":             {0, 1, 2},
-        "kids":            {0, 1},
-        "metro":           {0, 1},
-        "has_roommate":    {0, 1},
-        "topcoded":        {0, 1},
-        "housing":         {0, 1, 2, 3},
-        "multi_job_proxy": {0, 1, 2, 3},
-        "race_ethnicity":  set(range(5)),
-        "hh_share":        {0, 1, 2, 3},
-        "youngest_child":  {0, 1, 2, 3},
-        "hours_category":  {0, 1, 2, 3},
+        "work_status":    set(range(7)),
+        "age_bucket":     set(range(8)),
+        "marst":          set(range(5)),
+        "educ":           set(range(5)),
+        "region":         {0, 1, 2, 3, 4},
+        "sex":            {0, 1, 2},
+        "kids":           {0, 1},
+        "metro":          {0, 1},
+        "has_roommate":   {0, 1},
+        "topcoded":       {0, 1},
+        "housing":        {0, 1, 2, 3},
+        "multi_job_proxy":{0, 1, 2, 3},
+        "race_ethnicity": set(range(5)),
+        "youngest_child": {0, 1, 2, 3},
+        "hours_category": {0, 1, 2, 3},
+        "earner_count":   {0, 1, 2, 3},
+        "breadwinner":    set(range(5)),
+        "passive_pct":    set(range(5)),
+        "passive_source": set(range(5)),
+        "n_children":     set(range(10)),
     }
     msgs = []
     for col, allowed in valid.items():

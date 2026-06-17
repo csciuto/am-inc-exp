@@ -69,11 +69,32 @@
       "5": "Retired",
       "6": "Not working"
     },
-    "income_type": {
-      "0": "Primarily wages",
-      "1": "Mixed",
-      "2": "Passive/transfer",
-      "3": "Zero/negative"
+    "earner_count": {
+      "0": "No earners",
+      "1": "One earner",
+      "2": "Two earners",
+      "3": "Three or more"
+    },
+    "breadwinner": {
+      "0": "Sole/dominant",
+      "1": "Primary earner",
+      "2": "Co-earner",
+      "3": "Secondary earner",
+      "4": "Non-earner"
+    },
+    "passive_pct": {
+      "0": "\u226575% wages",
+      "1": "50\u201374% wages",
+      "2": "25\u201349% mixed",
+      "3": "<25% wages",
+      "4": "Entirely passive"
+    },
+    "passive_source": {
+      "0": "SS/disability",
+      "1": "Retirement/pension",
+      "2": "Capital (div/rent)",
+      "3": "Public assistance",
+      "4": "Primarily wages"
     },
     "kids": {
       "0": "No children",
@@ -105,12 +126,6 @@
     "has_roommate": {
       "0": "No roommates",
       "1": "Has roommate"
-    },
-    "hh_share": {
-      "0": "\u226590% sole",
-      "1": "50\u201390% primary",
-      "2": "25\u201350% equal/2nd",
-      "3": "<25% minor"
     },
     "multi_job_proxy": {
       "0": "No secondary work",

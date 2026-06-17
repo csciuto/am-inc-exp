@@ -161,8 +161,8 @@ class TestFilters:
 # ---------------------------------------------------------------------------
 
 class TestColorMode:
-    def test_default_color_mode_income_type(self, page: Page):
-        expect(page.locator(".cm-btn[data-mode='income_type']")).to_have_class(
+    def test_default_color_mode_passive_pct(self, page: Page):
+        expect(page.locator(".cm-btn[data-mode='passive_pct']")).to_have_class(
             re.compile(r"\bactive\b")
         )
 
@@ -171,7 +171,7 @@ class TestColorMode:
         expect(page.locator(".cm-btn[data-mode='work_status']")).to_have_class(
             re.compile(r"\bactive\b")
         )
-        expect(page.locator(".cm-btn[data-mode='income_type']")).not_to_have_class(
+        expect(page.locator(".cm-btn[data-mode='passive_pct']")).not_to_have_class(
             re.compile(r"\bactive\b")
         )
 
@@ -234,9 +234,21 @@ class TestColorMode:
         page.locator(".cm-btn[data-mode='has_roommate']").click()
         assert page.locator("#legend .legend-item").count() == 3
 
-    def test_color_by_hh_share_shows_5_entries(self, page: Page):
-        page.locator(".cm-btn[data-mode='hh_share']").click()
+    def test_color_by_passive_pct_shows_6_entries(self, page: Page):
+        page.locator(".cm-btn[data-mode='passive_pct']").click()
+        assert page.locator("#legend .legend-item").count() == 6
+
+    def test_color_by_earner_count_shows_5_entries(self, page: Page):
+        page.locator(".cm-btn[data-mode='earner_count']").click()
         assert page.locator("#legend .legend-item").count() == 5
+
+    def test_color_by_passive_source_shows_6_entries(self, page: Page):
+        page.locator(".cm-btn[data-mode='passive_source']").click()
+        assert page.locator("#legend .legend-item").count() == 6
+
+    def test_color_by_breadwinner_shows_6_entries(self, page: Page):
+        page.locator(".cm-btn[data-mode='breadwinner']").click()
+        assert page.locator("#legend .legend-item").count() == 6
 
     def test_color_mode_switch_preserves_dot_positions(self, page: Page):
         initial_cx = page.evaluate("""

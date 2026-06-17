@@ -317,14 +317,16 @@
       <!-- Group tab — color mode buttons -->
       <div id="tab-color" class="tab-panel active">
         <div id="color-mode">
-          <button class="cm-btn active" data-mode="income_type">Income type</button>
+          <button class="cm-btn active" data-mode="passive_pct">Income mix</button>
+          <button class="cm-btn" data-mode="passive_source">Passive source</button>
+          <button class="cm-btn" data-mode="earner_count">Earners</button>
+          <button class="cm-btn" data-mode="breadwinner">Breadwinner</button>
           <button class="cm-btn" data-mode="work_status">Work status</button>
           <button class="cm-btn" data-mode="age_bucket">Age</button>
           <button class="cm-btn" data-mode="sex">Sex</button>
           <button class="cm-btn" data-mode="educ">Education</button>
           <button class="cm-btn" data-mode="marst">Marital status</button>
           <button class="cm-btn" data-mode="has_roommate">Roommates</button>
-          <button class="cm-btn" data-mode="hh_share">Householder share</button>
           <button class="cm-btn" data-mode="race_ethnicity">Race/ethnicity</button>
           <button class="cm-btn" data-mode="housing">Housing</button>
           <button class="cm-btn" data-mode="kids">Kids</button>
@@ -393,12 +395,20 @@
           <div class="filter-btns" id="f-work_status"></div>
         </div>
         <div class="filter-group">
-          <div class="stat-label">Income type</div>
-          <div class="filter-btns" id="f-income_type"></div>
+          <div class="stat-label">Earners in household</div>
+          <div class="filter-btns" id="f-earner_count"></div>
         </div>
         <div class="filter-group">
-          <div class="stat-label">Householder share</div>
-          <div class="filter-btns" id="f-hh_share"></div>
+          <div class="stat-label">Breadwinner role</div>
+          <div class="filter-btns" id="f-breadwinner"></div>
+        </div>
+        <div class="filter-group">
+          <div class="stat-label">Income mix</div>
+          <div class="filter-btns" id="f-passive_pct"></div>
+        </div>
+        <div class="filter-group">
+          <div class="stat-label">Passive income source</div>
+          <div class="filter-btns" id="f-passive_source"></div>
         </div>
         <div class="filter-group">
           <div class="stat-label">Housing</div>
@@ -483,7 +493,7 @@ let regionToFips = new Map();        // regionCode → Set<fips>
 let stateColorMap = new Map();       // fips → palette index
 
 let filters = {};
-let colorMode = 'income_type';
+let colorMode = 'passive_pct';
 
 let visibleRows = [];
 let dotData = [];
@@ -502,12 +512,14 @@ function isMobile() { return window.innerWidth < 768; }
 const STATE_PALETTE = ['#4a7cbc', '#e07070', '#4a9c5e', '#c9a227', '#a97cc4', '#5bc8c8'];
 
 const PALETTES = {
-  income_type:     ['#4a9c5e', '#c9a227', '#8892b0', '#c94040'],
+  passive_pct:     ['#4a9c5e', '#7ab87a', '#c9a227', '#bc7040', '#c94040'],
+  passive_source:  ['#4a7cbc', '#8892b0', '#c9a227', '#c94040', '#4a9c5e'],
+  earner_count:    ['#c94040', '#4a7cbc', '#4a9c5e', '#c9a227'],
+  breadwinner:     ['#4a7cbc', '#4a9c9a', '#c9a227', '#e07070', '#8892b0'],
   work_status:     ['#4a7cbc', '#6bcc6b', '#c9a227', '#e07070', '#c94040', '#888', '#4a4a6a'],
   educ:            ['#c94040', '#e07070', '#c9a227', '#4a9c5e', '#4a7cbc'],
   marst:           ['#4a7cbc', '#c9a227', '#e07070', '#888', '#4a9c5e'],
   has_roommate:    ['#8892b0', '#c9a227'],
-  hh_share:        ['#4a7cbc', '#4a9c5e', '#c9a227', '#8892b0'],
   race_ethnicity:  ['#4a7cbc', '#4a9c5e', '#c9a227', '#bc6e4a', '#888'],
   multi_job_proxy: ['#666', '#c9a227', '#e07070', '#c94040'],
   age_bucket:      ['#8fbcdb', '#4a7cbc', '#4a9c9a', '#4a9c5e', '#c9a227', '#e07070', '#c94040', '#7a2020'],
@@ -587,9 +599,11 @@ async function init() {
     document.querySelector('.cm-btn[data-mode="has_roommate"]')?.remove();
     document.getElementById('f-has_roommate')?.closest('.filter-group')?.remove();
   }
-  if (!nationalTable.hh_share) {
-    document.querySelector('.cm-btn[data-mode="hh_share"]')?.remove();
-    document.getElementById('f-hh_share')?.closest('.filter-group')?.remove();
+  for (const mode of ['earner_count', 'breadwinner', 'passive_pct', 'passive_source']) {
+    if (!nationalTable[mode]) {
+      document.querySelector(`.cm-btn[data-mode="${mode}"]`)?.remove();
+      document.getElementById(`f-${mode}`)?.closest('.filter-group')?.remove();
+    }
   }
 
   buildFilterUI();
@@ -813,7 +827,7 @@ function dotColor(i, cols, palette) {
 
 function updateDotColors() {
   const cols = currentCols();
-  const palette = PALETTES[colorMode] || PALETTES.income_type;
+  const palette = PALETTES[colorMode] || PALETTES.passive_pct;
   d3.select('#chart-svg').selectAll('circle')
     .attr('fill', d => d.topcode ? 'none' : dotColor(d.i, cols, palette))
     .attr('stroke', d => d.topcode ? '#c9a227' : dotColor(d.i, cols, palette));
@@ -847,7 +861,7 @@ function buildKey(scopeStr, filterObj) {
 
 const DIM_TO_KEY = {
   age_bucket: 'age', sex: 'sex', marst: 'marst', educ: 'educ',
-  work_status: 'work', income_type: 'itype',
+  work_status: 'work', passive_pct: 'ppct', passive_source: 'psrc', earner_count: 'earners', breadwinner: 'bread',
   kids: 'kids', race_ethnicity: 'race', multi_job_proxy: 'mjob',
   housing: 'house', metro: 'metro', year: 'yr',
 };
@@ -955,7 +969,7 @@ function clearStats() {
 // ============================================================
 function pushUrl() {
   const params = new URLSearchParams();
-  if (colorMode !== 'income_type') params.set('cm', colorMode);
+  if (colorMode !== 'passive_pct') params.set('cm', colorMode);
   for (const [dim, vals] of Object.entries(filters)) {
     if (vals && vals.size > 0) params.set(dim, [...vals].sort().join(','));
   }
@@ -1093,7 +1107,7 @@ function renderChart() {
   });
 
   const svgEl = d3.select(svg);
-  const palette = PALETTES[colorMode] || PALETTES.income_type;
+  const palette = PALETTES[colorMode] || PALETTES.passive_pct;
 
   // X axis
   const gAxis = svgEl.append('g')
@@ -1534,15 +1548,29 @@ function showTooltip(event, i) {
   const yr = codebook?.year_display?.[String(cols.year[i])] ?? String(cols.year[i]);
   const stateName = codebook?.states?.[String(cols.state[i])]?.name ?? `State ${cols.state[i]}`;
 
+  const hhSize    = cols.hh_size?.[i] ?? '?';
+  const nEarners  = cols.earner_count?.[i] ?? '?';
+  const nKids     = cols.n_children?.[i] ?? (cols.kids?.[i] ? '1+' : '0');
+  const wageInc   = cols.wage_inc[i];
+  const passiveInc= cols.passive_inc?.[i];
+  const psrcLabel = cols.passive_source != null ? label('passive_source', cols.passive_source[i]) : null;
+
+  const earnerLine = nEarners === 0
+    ? 'No earners'
+    : `${nEarners} earner${nEarners !== 1 ? 's' : ''} · ${fmt$(wageInc)} wages`;
+  const passiveLine = (passiveInc != null && passiveInc > 0)
+    ? `${fmt$(passiveInc)} passive${psrcLabel && psrcLabel !== 'Primarily wages' ? ' (' + psrcLabel + ')' : ''}`
+    : null;
+
   tt.innerHTML = `
     <div class="tt-income">${fmt$(inc)}${topcode ? ' <span class="tt-topcode">⊕ topcoded</span>' : ''}</div>
-    <div class="tt-dim">Wage income: ${fmt$(cols.wage_inc[i])}</div>
+    <div class="tt-dim">${hhSize} in household · ${nKids === 0 || nKids === '0' ? 'no children' : nKids + ' child' + (nKids !== 1 ? 'ren' : '')}</div>
+    <div class="tt-dim">${earnerLine}</div>
+    ${passiveLine ? `<div class="tt-dim">${passiveLine}</div>` : ''}
     <div class="tt-dim">${label('age_bucket', cols.age_bucket[i])} · ${label('marst', cols.marst[i])} · ${label('educ', cols.educ[i])}</div>
     <div class="tt-dim">${stateName} · ${label('metro', cols.metro[i])}</div>
     <div class="tt-dim">${label('work_status', cols.work_status[i])} · ${label('multi_job_proxy', cols.multi_job_proxy[i])}</div>
-    <div class="tt-dim">${cols.kids[i] ? 'Kids present (' + label('youngest_child', cols.youngest_child[i]) + ')' : 'No children'}</div>
-    <div class="tt-dim">Weight: ${Math.round(cols.weight[i]).toLocaleString()} households represented</div>
-    <div class="tt-dim">Year: ${yr}</div>
+    <div class="tt-dim">Weight: ${Math.round(cols.weight[i]).toLocaleString()} households · ${yr}</div>
   `;
   tt.style.display = 'block';
   moveTooltip(event);
@@ -1570,13 +1598,15 @@ const FILTER_DEFS = [
   { id: 'f-sex', dim: 'sex' },
   { id: 'f-marst', dim: 'marst' },
   { id: 'f-has_roommate', dim: 'has_roommate' },
-  { id: 'f-hh_share', dim: 'hh_share' },
   { id: 'f-educ', dim: 'educ' },
   { id: 'f-race_ethnicity', dim: 'race_ethnicity' },
   { id: 'f-kids', dim: 'kids' },
   { id: 'f-metro', dim: 'metro' },
   { id: 'f-work_status', dim: 'work_status' },
-  { id: 'f-income_type', dim: 'income_type' },
+  { id: 'f-earner_count', dim: 'earner_count' },
+  { id: 'f-breadwinner', dim: 'breadwinner' },
+  { id: 'f-passive_pct', dim: 'passive_pct' },
+  { id: 'f-passive_source', dim: 'passive_source' },
   { id: 'f-year', dim: 'year' },
   { id: 'f-housing', dim: 'housing' },
   { id: 'f-multi_job_proxy', dim: 'multi_job_proxy' },
@@ -1628,10 +1658,12 @@ function syncFilterButtons() {
 // Active chips
 // ============================================================
 const DIM_LABELS = {
-  age_bucket: 'Age', sex: 'Sex', marst: 'Marital', educ: 'Educ', has_roommate: 'Roommates', hh_share: 'HH share',
-  work_status: 'Work', income_type: 'Income', race_ethnicity: 'Race',
+  age_bucket: 'Age', sex: 'Sex', marst: 'Marital', educ: 'Educ', has_roommate: 'Roommates',
+  work_status: 'Work', race_ethnicity: 'Race',
   kids: 'Kids', multi_job_proxy: '2nd job', metro: 'Metro',
   housing: 'Housing', year: 'Year',
+  earner_count: 'Earners', breadwinner: 'Breadwinner',
+  passive_pct: 'Inc. mix', passive_source: 'Passive src',
 };
 
 function renderActiveChips() {
