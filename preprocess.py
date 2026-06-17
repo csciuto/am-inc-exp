@@ -38,14 +38,16 @@ import pyarrow.ipc
 # Verify at: https://cps.ipums.org/cps/topcodes_tables.shtml
 # ---------------------------------------------------------------------------
 TOPCODES = {
+    2021: 2099997,   # ASEC 2021, income year 2020
+    2022: 2099997,   # ASEC 2022, income year 2021
     2023: 2099997,   # ASEC 2023, income year 2022
     2024: 2099997,   # ASEC 2024, income year 2023
     2025: 2099997,   # ASEC 2025, income year 2024
 }
 
 # Survey year → display label (income year = survey year - 1)
-YEAR_LABELS = {2023: "2022", 2024: "2023", 2025: "2024"}
-YEAR_CODES  = {2023: 0,      2024: 1,      2025: 2}
+YEAR_LABELS = {2021: "2020", 2022: "2021", 2023: "2022", 2024: "2023", 2025: "2024"}
+YEAR_CODES  = {2021: 0,      2022: 1,      2023: 2,      2024: 3,      2025: 4}
 
 WKSWORK2_MIDPOINTS = {1: 7, 2: 20, 3: 33, 4: 43, 5: 48, 6: 51, 0: 0}
 
@@ -147,7 +149,7 @@ WANTED = {
     "RELATE", "AGE", "SEX", "RACE", "MARST", "NCHILD", "YNGCH",
     "HISPAN", "EDUC",
     "EMPSTAT", "CLASSWKR", "WKSWORK2", "UHRSWORKLY", "UHRSWORKT", "UHRSWORK1",
-    "INCTOT", "INCWAGE", "INCBUS", "INCSS", "INCWELFR", "INCDIVID", "INCRENT", "INCRETIR",
+    "INCTOT", "INCWAGE", "INCBUS", "INCSS", "INCWELFR", "INCDIVID", "INCRENT", "INCRETIR", "INCINT",
     "SPMMORT",
 } | {f"REPWTP{i}" for i in range(1, 161)}
 
@@ -206,7 +208,7 @@ def collapse_to_household(df, cohabiting_keys, roommate_keys):
     # Non-wage CPS income variables use 9,999,999 as NIU/missing sentinel.
     NIU_OTHER = 9_999_999
     other_sums = {}
-    for _col in ["INCSS", "INCRETIR", "INCDIVID", "INCRENT", "INCWELFR"]:
+    for _col in ["INCSS", "INCRETIR", "INCDIVID", "INCRENT", "INCWELFR", "INCINT"]:
         if _col in df.columns:
             _vals = pd.to_numeric(df[_col], errors="coerce").fillna(0)
             _vals = _vals.where(_vals < NIU_OTHER, 0).clip(lower=0)
@@ -397,7 +399,7 @@ def derive_variables(hh):
 
     incss_hh    = _hh_inc("INCSS")
     incretir_hh = _hh_inc("INCRETIR")
-    capital_hh  = _hh_inc("INCDIVID") + _hh_inc("INCRENT")
+    capital_hh  = _hh_inc("INCDIVID") + _hh_inc("INCRENT") + _hh_inc("INCINT")
     welfare_hh  = _hh_inc("INCWELFR")
 
     passive_df  = pd.DataFrame(

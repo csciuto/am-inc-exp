@@ -26,11 +26,11 @@ class TestPageLoad:
         expect(page).to_have_title("American Income Explorer")
 
     def test_header_year_range(self, page: Page):
-        expect(page.locator(".sub")).to_contain_text("CPS ASEC 2023–2025")
+        expect(page.locator(".sub")).to_contain_text("CPS ASEC 2021–2025")
 
     def test_about_panel_year_range(self, page: Page):
         page.click("#btn-about")
-        expect(page.locator("#chart-about")).to_contain_text("2023–2025")
+        expect(page.locator("#chart-about")).to_contain_text("2021–2025")
 
     def test_dots_rendered(self, page: Page):
         assert page.locator("#chart-svg circle").count() > 100
@@ -355,11 +355,11 @@ class TestStateSelector:
 
     def test_year_filter_buttons_exist(self, page: Page):
         page.locator(".tab-btn[data-tab='survey']").click()
-        assert page.locator("#f-year .f-btn").count() == 3
+        assert page.locator("#f-year .f-btn").count() == 5
 
-    def test_color_by_year_shows_three_entries(self, page: Page):
+    def test_color_by_year_shows_five_entries(self, page: Page):
         page.locator(".cm-btn[data-mode='year']").click()
-        assert page.locator("#legend .legend-item").count() == 4
+        assert page.locator("#legend .legend-item").count() == 6
 
     def test_all_states_represented_in_subsample(self, page: Page):
         """Every state with ≥50 rows in the Arrow file must appear in the

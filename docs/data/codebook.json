@@ -1,23 +1,31 @@
 {
   "topcodes": {
+    "2021": 2099997,
+    "2022": 2099997,
     "2023": 2099997,
     "2024": 2099997,
     "2025": 2099997
   },
   "years": {
+    "2021": "2020",
+    "2022": "2021",
     "2023": "2022",
     "2024": "2023",
     "2025": "2024"
   },
   "year_codes": {
-    "0": "2023",
-    "1": "2024",
-    "2": "2025"
+    "0": "2021",
+    "1": "2022",
+    "2": "2023",
+    "3": "2024",
+    "4": "2025"
   },
   "year_display": {
-    "0": "2022",
-    "1": "2023",
-    "2": "2024"
+    "0": "2020",
+    "1": "2021",
+    "2": "2022",
+    "3": "2023",
+    "4": "2024"
   },
   "notes": {
     "multijob": "Multiple job holding estimated from hours differential (UHRSWORKT \u2212 UHRSWORK1). Captures secondary job hours but cannot count jobs directly. 'Hours vary' responses (\u2265997) excluded. People with two equal-hours jobs may be undercounted.",
