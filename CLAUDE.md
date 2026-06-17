@@ -133,7 +133,14 @@ No default filters on load — all households shown. Users filter via the sideba
 
 Stats lookup: builds key from active scope + single-value filters → hits `precomputed`, falls back to live weighted computation. Live path has no BRR SE (replicate weights not in browser).
 
-Dot chart: log-scale x-axis, beeswarm y-jitter, max 3000 dots via weighted subsampling. Dot radius proportional to `weight` (median weight = 4px, floor 2px, ceiling 8px). Topcoded dots rendered as hollow circles with ⊕ overlay.
+Dot chart: log-scale x-axis, beeswarm y-jitter. Dot radius proportional to `weight` (median weight = 4px, floor 2px, ceiling 8px). Topcoded dots rendered as hollow circles with ⊕ overlay.
+
+Dot sampling controls (toolbar, next to Dots/Bars/100%):
+- **1K / 3K / 5K** — sets `maxDots` (default 3000), the upper limit of dots drawn. On mobile, capped further to `min(maxDots, 800)`.
+- **Static** (default) — samples randomly from *all* rows, dims non-matching households via opacity. The same dot set persists as you change filters and color mode within a scope; new state/national selection re-samples.
+- **All** — samples only from `visibleRows` (households matching current filters), re-samples on every filter change. Useful when filtered to a state or narrow slice where you want to see the actual population without dimmed background dots.
+
+A "N of M households" counter appears in the toolbar when fewer than M are shown.
 
 By group breakdown: computed from full `visibleRows` (not the dot subsample), weighted stats per group. Shows actual survey record count, not dot count.
 

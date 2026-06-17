@@ -69,10 +69,15 @@
   #btn-clear:hover { color: var(--text); border-color: var(--text-dim); }
   #btn-brush { font-size: 11px; color: var(--text-dim); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; cursor: pointer; }
   #btn-brush:hover, #btn-brush.active { color: var(--accent); border-color: var(--accent); }
-  #view-toggle { display: flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  #view-toggle, #dots-toggle, #sample-toggle { display: flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
   .view-btn { font-size: 11px; color: var(--text-dim); background: none; border: none; padding: 4px 10px; cursor: pointer; }
   .view-btn:hover { color: var(--text); background: var(--surface2); }
   .view-btn.active { color: var(--bg); background: var(--accent); }
+.dots-btn, .sample-btn { font-size: 11px; color: var(--text-dim); background: none; border: none; padding: 4px 10px; cursor: pointer; }
+  .dots-btn:hover, .sample-btn:hover:not(:disabled) { color: var(--text); background: var(--surface2); }
+  .dots-btn.active, .sample-btn.active { color: var(--bg); background: var(--accent); }
+  .sample-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  #dot-count { font-size: 11px; color: var(--text-dimmer); padding: 4px 6px; white-space: nowrap; }
   .brush-layer .selection { fill: var(--accent); fill-opacity: 0.12; stroke: var(--accent); stroke-width: 1; }
   .brush-layer .handle { fill: var(--accent); fill-opacity: 0.6; rx: 2; }
   .brush-layer .overlay { cursor: crosshair; }
@@ -226,7 +231,7 @@
     .f-btn    { padding: 8px 12px; min-height: 36px; font-size: 12px; }
     .tab-btn  { padding: 9px 8px;  min-height: 36px; }
     .cm-btn   { padding: 9px 10px; min-height: 36px; }
-    .view-btn { padding: 7px 12px; }
+    .view-btn, .dots-btn, .sample-btn { padding: 7px 12px; }
     #btn-brush, #btn-clear, #btn-filters { padding: 7px 12px; min-height: 36px; font-size: 11px; }
     .stats-tab-btn  { padding: 9px 6px; min-height: 36px; }
     .state-check-label { padding: 7px 4px; min-height: 36px; }
@@ -442,6 +447,16 @@
         <button class="view-btn" data-view="bars">Bars</button>
         <button class="view-btn" data-view="pct">100%</button>
       </div>
+      <div id="dots-toggle">
+        <button class="dots-btn" data-maxdots="1000">1K</button>
+        <button class="dots-btn active" data-maxdots="3000">3K</button>
+        <button class="dots-btn" data-maxdots="5000">5K</button>
+      </div>
+      <div id="sample-toggle">
+        <button id="btn-static" class="sample-btn active" title="Static: randomly drawn from all households — same dots persist as you change filters and color">Static</button>
+        <button id="btn-showall" class="sample-btn" title="All: only matching households shown, up to the dot limit">All</button>
+      </div>
+      <span id="dot-count"></span>
       <button id="btn-filters">Filters</button>
       <button id="btn-clear">Clear all</button>
     </div>
@@ -454,6 +469,7 @@
           <dt>Y axis</dt><dd>Frequency — taller clusters mean more households near that income. Dots are also spread apart vertically to reduce overlap, so the exact y position of each dot isn't meaningful.</dd>
           <dt>Dot size</dt><dd>Proportional to the household's sampling weight. A larger dot represents more US households.</dd>
           <dt>Colors</dt><dd>Set by the <em>Group</em> tab. Click a legend swatch to filter by that category. Topcoded incomes (⊕) are censored at the survey year's reported maximum.</dd>
+          <dt>Dot count / Static / All</dt><dd><strong>1K / 3K / 5K</strong> sets the maximum dots drawn. <strong>Static</strong> draws randomly from all households and dims non-matching ones as you adjust filters — the same dots persist as you click around within a state or national view. <strong>All</strong> draws only from households that match your current filters, up to the dot limit; useful when zoomed into a state or narrow filter where you want to see the actual population.</dd>
           <dt>Data</dt><dd>IPUMS CPS ASEC survey years 2021–2025 (income years 2020–2024), pooled. All statistics are weighted. Small samples are flagged — see the reliability indicator.</dd>
         </dl>
       </div>
@@ -503,6 +519,8 @@ let brushLayer = null;   // D3 selection of brush <g>
 let d3brush = null;      // D3 brush object
 let brushModeActive = false;
 let viewMode = 'dots';   // 'dots' | 'bars'
+let sampleMode = true;   // true=static (sample all rows, dim non-matching); false=all (only matching rows)
+let maxDots = 3000;      // dot cap: 1000 | 3000 | 5000
 
 function isMobile() { return window.innerWidth < 768; }
 
@@ -834,18 +852,30 @@ function updateDotColors() {
 }
 
 // ============================================================
-// Subsample (max 3000 dots) — Fisher-Yates partial shuffle
+// Subsample — partial Fisher-Yates shuffle
 // ============================================================
-function subsample(rows, maxDots = 3000) {
-  if (rows.length <= maxDots) return rows;
+function subsample(rows, limit) {
+  if (rows.length <= limit) return rows;
   const arr = [...rows];
   const n = arr.length;
-  // Partial Fisher-Yates: only shuffle the first maxDots positions
-  for (let i = 0; i < maxDots; i++) {
+  for (let i = 0; i < limit; i++) {
     const j = i + Math.floor(Math.random() * (n - i));
     const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
   }
-  return arr.slice(0, maxDots);
+  return arr.slice(0, limit);
+}
+
+function updateDotCountDisplay() {
+  const el = document.getElementById('dot-count');
+  if (!el || viewMode !== 'dots') { if (el) el.textContent = ''; return; }
+  const total = visibleRows.length;
+  const shown = dotData.length;
+  el.textContent = shown < total ? `${shown.toLocaleString()} of ${total.toLocaleString()} households` : '';
+}
+
+function syncSampleButtons() {
+  document.getElementById('btn-static').classList.toggle('active', sampleMode);
+  document.getElementById('btn-showall').classList.toggle('active', !sampleMode);
 }
 
 // ============================================================
@@ -976,6 +1006,8 @@ function pushUrl() {
   if (selectedFips.size > 0) params.set('states', [...selectedFips].sort().join(','));
   if (brushRange) { params.set('brush_lo', brushRange.lo); params.set('brush_hi', brushRange.hi); }
   if (viewMode !== 'dots') params.set('v', viewMode);
+  if (maxDots !== 3000) params.set('md', maxDots);
+  if (!sampleMode) params.set('sm', '0');
   const qs = params.toString();
   history.replaceState(null, '', qs ? '#' + qs : location.pathname + location.search);
 }
@@ -1010,9 +1042,20 @@ function applyUrl() {
     document.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
   }
 
+  const md = parseInt(params.get('md'));
+  if ([1000, 3000, 5000].includes(md)) {
+    maxDots = md;
+    document.querySelectorAll('.dots-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.maxdots) === md));
+  }
+
+  if (params.get('sm') === '0') {
+    sampleMode = false;
+    syncSampleButtons();
+  }
+
   filters = {};
   for (const [key, val] of params.entries()) {
-    if (['cm', 'states', 'brush_lo', 'brush_hi', 'v'].includes(key)) continue;
+    if (['cm', 'states', 'brush_lo', 'brush_hi', 'v', 'md', 'sm'].includes(key)) continue;
     const nums = val.split(',').map(Number).filter(v => !isNaN(v));
     if (nums.length) filters[key] = new Set(nums);
   }
@@ -1045,7 +1088,7 @@ function render() {
   const scope = computeScope();
   if (viewMode === 'bars' || viewMode === 'pct') {
     renderStackedBars();
-  } else if (scope !== chartScope || dotData.length === 0) {
+  } else if (!sampleMode || scope !== chartScope || dotData.length === 0) {
     renderChart();
   } else {
     updateDotOpacity();
@@ -1071,8 +1114,12 @@ function renderChart() {
   const chartH = H - marginT - marginB;
 
   const cols = currentCols();
-  const allRowIndices = Array.from({length: cols.inc.length}, (_, i) => i);
-  const dotRows = subsample(allRowIndices, isMobile() ? 800 : 3000);
+  const mobileMax = Math.min(maxDots, 800);
+  const limit = isMobile() ? mobileMax : maxDots;
+  const rowPool = sampleMode
+    ? Array.from({length: cols.inc.length}, (_, i) => i)
+    : visibleRows;
+  const dotRows = subsample(rowPool, limit);
   const hasFilters = selectedFips.size > 0 || Object.values(filters).some(s => s && s.size > 0);
 
   d3.select(svg).selectAll('*').remove();
@@ -1174,6 +1221,7 @@ function renderChart() {
       .text('⊕');
 
   attachBrushLayer(svgEl, xScale, marginL, marginT, chartW, chartH);
+  updateDotCountDisplay();
 }
 
 function attachBrushLayer(svgEl, xScale, marginL, marginT, chartW, chartH) {
@@ -1875,13 +1923,38 @@ document.getElementById('btn-clear').addEventListener('click', () => {
   render();
 });
 
-// View toggle (Dots / Bars)
+// View toggle (Dots / Bars / 100%)
 document.querySelectorAll('.view-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     viewMode = btn.dataset.view;
     document.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b === btn));
     render();
   });
+});
+
+// Dot count (1K / 3K / 5K)
+document.querySelectorAll('.dots-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    maxDots = parseInt(btn.dataset.maxdots);
+    document.querySelectorAll('.dots-btn').forEach(b => b.classList.toggle('active', b === btn));
+    chartScope = null;  // force full re-render with new limit
+    render();
+  });
+});
+
+// Static / All sample mode toggle
+document.getElementById('btn-static').addEventListener('click', () => {
+  if (sampleMode) return;
+  sampleMode = true;
+  chartScope = null;  // re-render from full row pool
+  syncSampleButtons();
+  render();
+});
+document.getElementById('btn-showall').addEventListener('click', () => {
+  if (!sampleMode) return;
+  sampleMode = false;
+  syncSampleButtons();
+  render();
 });
 
 // ============================================================

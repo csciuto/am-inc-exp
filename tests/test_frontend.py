@@ -361,6 +361,39 @@ class TestStateSelector:
         page.locator(".cm-btn[data-mode='year']").click()
         assert page.locator("#legend .legend-item").count() == 6
 
+    def test_dot_count_buttons_exist(self, page: Page):
+        assert page.locator(".dots-btn").count() == 3
+
+    def test_dot_count_default_is_3k(self, page: Page):
+        assert page.locator(".dots-btn.active").get_attribute("data-maxdots") == "3000"
+
+    def test_static_all_buttons_exist(self, page: Page):
+        expect(page.locator("#btn-static")).to_be_visible()
+        expect(page.locator("#btn-showall")).to_be_visible()
+
+    def test_static_is_default_active(self, page: Page):
+        expect(page.locator("#btn-static")).to_have_class(re.compile(r'\bactive\b'))
+        expect(page.locator("#btn-showall")).not_to_have_class(re.compile(r'\bactive\b'))
+
+    def test_dot_count_selector_changes_active(self, page: Page):
+        page.locator(".dots-btn[data-maxdots='1000']").click()
+        assert page.locator(".dots-btn.active").get_attribute("data-maxdots") == "1000"
+        # switching back
+        page.locator(".dots-btn[data-maxdots='3000']").click()
+        assert page.locator(".dots-btn.active").get_attribute("data-maxdots") == "3000"
+
+    def test_all_mode_toggle(self, page: Page):
+        page.locator("#btn-showall").click()
+        expect(page.locator("#btn-showall")).to_have_class(re.compile(r'\bactive\b'))
+        expect(page.locator("#btn-static")).not_to_have_class(re.compile(r'\bactive\b'))
+        page.locator("#btn-static").click()
+        expect(page.locator("#btn-static")).to_have_class(re.compile(r'\bactive\b'))
+
+    def test_dot_count_display_shown_in_sample_mode(self, page: Page):
+        # National unfiltered: 290k rows → 3k dots → counter should be visible
+        count_text = page.locator("#dot-count").text_content()
+        assert "of" in count_text and "households" in count_text
+
     def test_all_states_represented_in_subsample(self, page: Page):
         """Every state with ≥50 rows in the Arrow file must appear in the
         3000-dot subsample so selecting it produces visible dots."""
